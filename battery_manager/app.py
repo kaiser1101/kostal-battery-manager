@@ -155,8 +155,19 @@ try:
         config['inverter_port']
     )
     ha_client = HomeAssistantClient()
-    
+
     add_log('INFO', 'Components initialized successfully')
+
+    # Automatic connection test on startup
+    if kostal_api:
+        logger.info("Testing Kostal connection on startup...")
+        result = kostal_api.test_connection()
+        if result:
+            app_state['inverter']['connected'] = True
+            add_log('INFO', 'Connection test successful - Inverter connected')
+        else:
+            app_state['inverter']['connected'] = False
+            add_log('WARNING', 'Connection test failed - Check inverter IP and network')
 except ImportError as e:
     logger.warning(f"Could not import components: {e}")
     kostal_api = None

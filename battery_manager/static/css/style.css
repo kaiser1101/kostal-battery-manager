@@ -15,14 +15,37 @@
     --border-color: #e0e0e0;
 }
 
-/* Dark Mode */
+/* Dark Mode - Improved contrast */
 @media (prefers-color-scheme: dark) {
     :root {
-        --bg-color: #1e1e1e;
-        --card-bg: #2d2d2d;
-        --text-color: #e0e0e0;
-        --text-muted: #888888;
-        --border-color: #444444;
+        --bg-color: #121212;
+        --card-bg: #1e1e1e;
+        --text-color: #ffffff;
+        --text-muted: #b0b0b0;
+        --border-color: #333333;
+    }
+
+    /* Better contrast for dark mode */
+    .battery-icon {
+        border-color: #ffffff;
+    }
+
+    .battery-icon::after {
+        background-color: #ffffff;
+    }
+
+    .status-item {
+        background-color: rgba(255,255,255,0.08);
+    }
+
+    .form-group input,
+    .form-group select {
+        background-color: rgba(255,255,255,0.08);
+        border-color: #555555;
+    }
+
+    .logs-container {
+        background-color: rgba(255,255,255,0.05);
     }
 }
 
