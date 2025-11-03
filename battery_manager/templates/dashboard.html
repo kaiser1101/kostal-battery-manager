@@ -21,12 +21,8 @@
                 </span>
             </div>
             <div class="status-item">
-                <span class="label">Modus:</span>
-                <span class="value" id="mode">{{ state.inverter.mode }}</span>
-            </div>
-            <div class="status-item">
-                <span class="label">Steuerung:</span>
-                <span class="value" id="control-mode">{{ state.inverter.control_mode }}</span>
+                <span class="label">Status:</span>
+                <span class="value" id="status">Standby</span>
             </div>
             <div class="status-item">
                 <span class="label">Letzte Aktualisierung:</span>
@@ -212,9 +208,18 @@ function updateStatus() {
                 autoToggle.checked = false;
             }
 
-            // Update mode
-            document.getElementById('mode').textContent = data.inverter.mode;
-            document.getElementById('control-mode').textContent = data.inverter.control_mode;
+            // v0.2.6 - Update status with German labels
+            const statusElement = document.getElementById('status');
+            const mode = data.inverter.mode;
+            if (mode === 'automatic') {
+                statusElement.textContent = 'Standby';
+            } else if (mode === 'manual_charging') {
+                statusElement.textContent = 'Lädt (manuell)';
+            } else if (mode === 'auto_charging') {
+                statusElement.textContent = 'Lädt (Auto)';
+            } else {
+                statusElement.textContent = mode;
+            }
             
             // Update battery
             const soc = data.battery.soc || 0;
