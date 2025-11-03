@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.3.0] - 2025-11-03
+
+### Added
+- **Intelligent Tibber-based charging optimization** - Advanced price analysis for optimal charging
+- Automatic detection of price increase point (end of cheap period)
+- Backward calculation of optimal charging start time based on battery SOC
+- Charging plan display in dashboard showing planned start/end times and last calculation
+- New `TibberOptimizer` core module for smart charging logic
+- Support for configurable price thresholds:
+  - `tibber_price_threshold_1h`: Price increase threshold vs previous hour (default 8%)
+  - `tibber_price_threshold_3h`: 3-hour block comparison threshold (default 8%)
+  - `charge_duration_per_10_percent`: Charging time per 10% SOC (default 18 minutes)
+  - `min_soc`: Minimum safety SOC (default 20%)
+  - `max_soc`: Maximum target SOC (default 95%)
+- Optional Home Assistant input_datetime integration for charging plan visualization
+- New API endpoint `/api/charging_plan` for charging schedule information
+- Periodic charging plan updates (every 5 minutes)
+
+### Changed
+- Auto-optimization mode now uses sophisticated price trend analysis instead of simple price levels
+- Controller considers both price trends (1h and 3h windows) and PV forecast
+- Charging starts automatically at calculated optimal time
+- Charging stops when price increases or battery reaches max SOC
+- Enhanced `/api/status` endpoint now includes charging plan information
+
+### Technical
+- Ported Home Assistant automation logic to Python for standalone operation
+- Added charging plan calculation with timezone-aware datetime handling
+- Integration with Home Assistant `input_datetime` helpers (optional)
+- Improved error handling for missing/invalid price data
+- Fallback behavior when no optimal charging time is found
+- Comprehensive logging for all charging decisions
+- Manual charging control remains fully functional alongside automatic optimization
+
 ## [0.2.7] - 2025-11-03
 
 ### Fixed

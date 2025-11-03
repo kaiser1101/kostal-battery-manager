@@ -150,3 +150,30 @@ class HomeAssistantClient:
         except Exception as e:
             logger.error(f"Error getting state with attributes for {entity_id}: {e}")
             return None
+
+    def set_datetime(self, entity_id, dt):
+        """
+        Set input_datetime value (v0.3.0)
+
+        Args:
+            entity_id: Entity ID of input_datetime
+            dt: datetime object to set
+
+        Returns:
+            bool: True if successful
+        """
+        if not self.token:
+            logger.debug("Cannot set datetime - no token")
+            return False
+
+        try:
+            url = f"{self.api_url}/api/services/input_datetime/set_datetime"
+            data = {
+                "entity_id": entity_id,
+                "datetime": dt.isoformat()
+            }
+            response = requests.post(url, json=data, headers=self.headers, timeout=10)
+            return response.status_code == 200
+        except Exception as e:
+            logger.error(f"Error setting datetime: {e}")
+            return False

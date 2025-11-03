@@ -1,5 +1,5 @@
 name: Kostal Battery Manager
-version: "0.2.7"
+version: "0.3.0"
 slug: kostal_battery_manager
 description: "Intelligente Batteriesteuerung für Kostal Plenticore Plus mit Tibber-Optimierung"
 url: "https://github.com/SvenSteuer/kostal-battery-manager"
@@ -54,6 +54,14 @@ options:
   pv_production_tomorrow_roof2: "sensor.energy_production_tomorrow_roof2"
   pv_next_hour_roof1: "sensor.energy_next_hour_roof1"
   pv_next_hour_roof2: "sensor.energy_next_hour_roof2"
+  # v0.3.0 - Tibber Smart Charging
+  tibber_price_threshold_1h: 8
+  tibber_price_threshold_3h: 8
+  charge_duration_per_10_percent: 18
+  min_soc: 20
+  max_soc: 95
+  input_datetime_planned_charge_end: "input_datetime.tibber_geplantes_ladeende"
+  input_datetime_planned_charge_start: "input_datetime.tibber_geplanter_ladebeginn"
 
 schema:
   inverter_ip: str
@@ -95,6 +103,15 @@ schema:
   pv_production_tomorrow_roof2: str?
   pv_next_hour_roof1: str?
   pv_next_hour_roof2: str?
+
+  # v0.3.0 - Tibber Smart Charging
+  tibber_price_threshold_1h: int(1,50)
+  tibber_price_threshold_3h: int(1,50)
+  charge_duration_per_10_percent: int(5,60)
+  min_soc: int(5,50)
+  max_soc: int(50,100)
+  input_datetime_planned_charge_end: str?
+  input_datetime_planned_charge_start: str?
 
 map:
   - data:rw

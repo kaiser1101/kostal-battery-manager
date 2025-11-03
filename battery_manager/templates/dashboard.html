@@ -119,6 +119,25 @@
         </div>
     </div>
 
+    <!-- Charging Plan (v0.3.0) -->
+    <div class="card forecast-card">
+        <h2>📅 Geplante Ladung</h2>
+        <div class="forecast-display" id="charging-plan-display">
+            <div class="forecast-item">
+                <span class="label">Start:</span>
+                <span class="value" id="plan-start">Nicht geplant</span>
+            </div>
+            <div class="forecast-item">
+                <span class="label">Ende:</span>
+                <span class="value" id="plan-end">Nicht geplant</span>
+            </div>
+            <div class="forecast-item">
+                <span class="label">Berechnet:</span>
+                <span class="value" id="plan-calculated">Nie</span>
+            </div>
+        </div>
+    </div>
+
     <!-- Quick Stats -->
     <div class="card stats-card">
         <h2>📈 Statistik (Coming Soon)</h2>
@@ -245,7 +264,22 @@ function updateStatus() {
             // Update forecast
             document.getElementById('forecast-today').textContent = (data.forecast.today || 0).toFixed(1) + ' kWh';
             document.getElementById('forecast-tomorrow').textContent = (data.forecast.tomorrow || 0).toFixed(1) + ' kWh';
-            
+
+            // v0.3.0 - Update charging plan
+            if (data.charging_plan && data.charging_plan.planned_start) {
+                const startTime = new Date(data.charging_plan.planned_start);
+                const endTime = new Date(data.charging_plan.planned_end);
+                const calculated = new Date(data.charging_plan.last_calculated);
+
+                document.getElementById('plan-start').textContent = startTime.toLocaleString('de-DE', {hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit'});
+                document.getElementById('plan-end').textContent = endTime.toLocaleString('de-DE', {hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit'});
+                document.getElementById('plan-calculated').textContent = calculated.toLocaleString('de-DE', {hour: '2-digit', minute: '2-digit'});
+            } else {
+                document.getElementById('plan-start').textContent = 'Nicht geplant';
+                document.getElementById('plan-end').textContent = 'Nicht geplant';
+                document.getElementById('plan-calculated').textContent = 'Nie';
+            }
+
             // Update timestamp
             const timestamp = new Date(data.timestamp);
             document.getElementById('last-update').textContent = timestamp.toLocaleString('de-DE');
