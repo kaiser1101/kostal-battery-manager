@@ -60,7 +60,15 @@ def load_config():
         'control_interval': 30,
         'enable_tibber_optimization': True,
         'price_threshold': 0.85,
-        'battery_soc_sensor': 'sensor.zwh8_8500_battery_soc'
+        'battery_soc_sensor': 'sensor.zwh8_8500_battery_soc',
+        # v0.2.0 - New sensor options
+        'battery_power_sensor': 'sensor.zwh8_8500_battery_power',
+        'battery_voltage_sensor': '',
+        'tibber_price_sensor': 'sensor.tibber_prices',
+        'tibber_price_level_sensor': 'sensor.tibber_price_level_deutsch',
+        'pv_forecast_sensor': 'sensor.solcast_pv_forecast_today',
+        'consumption_sensor': 'sensor.verbleibende_solarerzeugung_heute',
+        'auto_optimization_enabled': True
     }
 
 # Load configuration
@@ -180,7 +188,7 @@ def logs_page():
 def api_status():
     """Get current status"""
     app_state['last_update'] = datetime.now().isoformat()
-    
+
     # Try to read battery SOC from Home Assistant
     if ha_client:
         try:
@@ -189,7 +197,27 @@ def api_status():
                 app_state['battery']['soc'] = float(soc)
         except Exception as e:
             logger.debug(f"Could not read battery SOC: {e}")
-    
+
+        # Read battery power (v0.2.0)
+        try:
+            battery_power_sensor = config.get('battery_power_sensor')
+            if battery_power_sensor:
+                power = ha_client.get_state(battery_power_sensor)
+                if power and power not in ['unknown', 'unavailable']:
+                    app_state['battery']['power'] = float(power)
+        except Exception as e:
+            logger.debug(f"Could not read battery power: {e}")
+
+        # Read battery voltage (v0.2.0)
+        try:
+            battery_voltage_sensor = config.get('battery_voltage_sensor')
+            if battery_voltage_sensor:
+                voltage = ha_client.get_state(battery_voltage_sensor)
+                if voltage and voltage not in ['unknown', 'unavailable']:
+                    app_state['battery']['voltage'] = float(voltage)
+        except Exception as e:
+            logger.debug(f"Could not read battery voltage: {e}")
+
     return jsonify({
         'status': 'ok',
         'timestamp': app_state['last_update'],
@@ -314,6 +342,86 @@ def api_logs():
         'logs': app_state['logs']
     })
 
+@app.route('/api/sync_soc', methods=['POST'])
+def api_sync_soc():
+    """Synchronize SOC limits to inverter (v0.2.0)"""
+    try:
+        min_soc = config['min_soc']
+        max_soc = config['max_soc']
+
+        if not kostal_api:
+            add_log('ERROR', 'Kostal API not available')
+            return jsonify({
+                'status': 'error',
+                'message': 'Kostal API not available'
+            }), 500
+
+        success = kostal_api.set_battery_soc_limits(min_soc, max_soc)
+
+        if success:
+            add_log('INFO', f'SOC limits synchronized to inverter: {min_soc}% - {max_soc}%')
+            return jsonify({
+                'status': 'ok',
+                'message': f'SOC limits synchronized: {min_soc}% - {max_soc}%'
+            })
+        else:
+            add_log('ERROR', 'Failed to synchronize SOC limits')
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to synchronize SOC limits'
+            }), 500
+
+    except Exception as e:
+        add_log('ERROR', f'Error synchronizing SOC limits: {str(e)}')
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/adjust_power', methods=['POST'])
+def api_adjust_power():
+    """Adjust charging power during active charging (v0.2.0)"""
+    try:
+        data = request.json
+        power = data.get('power', config.get('max_charge_power', 3900))
+
+        # Only execute if currently charging
+        if app_state['inverter']['mode'] in ['manual_charging', 'auto_charging']:
+            if not modbus_client:
+                add_log('ERROR', 'Modbus client not available')
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Modbus client not available'
+                }), 500
+
+            charge_power = -abs(int(power))
+            success = modbus_client.write_battery_power(charge_power)
+
+            if success:
+                add_log('INFO', f'Charging power adjusted to {power}W')
+                return jsonify({
+                    'status': 'ok',
+                    'power': power
+                })
+            else:
+                add_log('ERROR', 'Failed to adjust charging power')
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Failed to adjust charging power'
+                }), 500
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Not currently charging'
+            }), 400
+
+    except Exception as e:
+        add_log('ERROR', f'Error adjusting power: {str(e)}')
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
 # ==============================================================================
 # Error Handlers
 # ==============================================================================
@@ -333,18 +441,77 @@ def internal_error(error):
 
 def controller_loop():
     """Background thread for battery control"""
+    import time
     logger.info("Controller loop started")
-    
+
     while True:
         try:
-            if app_state['controller_running']:
-                # TODO: Implement automatic optimization logic
-                pass
-            
+            if app_state['controller_running'] and config.get('auto_optimization_enabled', True):
+                # Auto-optimization logic (v0.2.0)
+                if ha_client and kostal_api and modbus_client:
+                    try:
+                        # Get current data from Home Assistant
+                        current_price_level = ha_client.get_state(
+                            config.get('tibber_price_level_sensor')
+                        )
+                        current_soc = float(ha_client.get_state(
+                            config.get('battery_soc_sensor', 'sensor.zwh8_8500_battery_soc')
+                        ) or 0)
+                        pv_forecast = float(ha_client.get_state(
+                            config.get('pv_forecast_sensor')
+                        ) or 0)
+
+                        # Update app state
+                        if current_price_level:
+                            app_state['price']['level'] = current_price_level
+
+                        # Decision logic
+                        should_charge = False
+
+                        # Rule 1: Very cheap prices and low SOC
+                        if current_price_level in ['sehr günstig', 'günstig'] and \
+                           current_soc < config.get('max_soc', 95):
+                            # Only charge if low PV forecast
+                            if pv_forecast < 5:  # Less than 5 kWh expected
+                                should_charge = True
+                                logger.debug(f"Rule 1: Cheap price ({current_price_level}), " +
+                                           f"low PV forecast ({pv_forecast} kWh)")
+
+                        # Rule 2: SOC below minimum (safety)
+                        if current_soc < config.get('min_soc', 20):
+                            should_charge = True
+                            logger.debug(f"Rule 2: SOC {current_soc}% below minimum")
+
+                        # Rule 3: Expensive prices - don't charge
+                        if current_price_level in ['teuer', 'sehr teuer']:
+                            should_charge = False
+                            logger.debug(f"Rule 3: Expensive price ({current_price_level}), " +
+                                       "not charging")
+
+                        # Execute action
+                        if should_charge and app_state['inverter']['mode'] not in \
+                           ['manual_charging', 'auto_charging']:
+                            # Start charging
+                            kostal_api.set_external_control(True)
+                            charge_power = -config['max_charge_power']
+                            modbus_client.write_battery_power(charge_power)
+                            app_state['inverter']['mode'] = 'auto_charging'
+                            add_log('INFO',
+                                  f'Auto-Optimization: Started charging at {current_price_level}')
+
+                        elif not should_charge and app_state['inverter']['mode'] == 'auto_charging':
+                            # Stop charging
+                            modbus_client.write_battery_power(0)
+                            kostal_api.set_external_control(False)
+                            app_state['inverter']['mode'] = 'automatic'
+                            add_log('INFO', 'Auto-Optimization: Stopped charging')
+
+                    except Exception as e:
+                        logger.error(f"Error in auto-optimization: {e}")
+
             # Sleep for control interval
-            import time
             time.sleep(config.get('control_interval', 30))
-            
+
         except Exception as e:
             logger.error(f"Error in controller loop: {e}")
             add_log('ERROR', f'Controller error: {str(e)}')
