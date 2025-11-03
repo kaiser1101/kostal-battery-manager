@@ -136,6 +136,11 @@
                 <span class="value" id="plan-calculated">Nie</span>
             </div>
         </div>
+        <div style="margin-top: 1rem;">
+            <button onclick="recalculatePlan()" class="btn btn-secondary" style="width: 100%;">
+                🔄 Neu berechnen
+            </button>
+        </div>
     </div>
 
     <!-- Quick Stats -->
@@ -406,6 +411,35 @@ function adjustPowerIfCharging(power) {
             }
         })
         .catch(error => console.error('Error checking status:', error));
+}
+
+// v0.3.2 - Manual charging plan recalculation
+function recalculatePlan() {
+    showLoading('Berechne Ladeplan...');
+
+    fetch('api/recalculate_plan', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({})
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideLoading();
+        if (data.status === 'ok') {
+            showNotification('success', 'Ladeplan neu berechnet!');
+            // Wait a moment, then update status to show new plan
+            setTimeout(() => {
+                updateStatus();
+            }, 500);
+        } else {
+            showNotification('error', 'Fehler bei der Berechnung');
+        }
+    })
+    .catch(error => {
+        hideLoading();
+        showNotification('error', 'Fehler bei der Berechnung');
+        console.error(error);
+    });
 }
 
 // Cleanup on page unload

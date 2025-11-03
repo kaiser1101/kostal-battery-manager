@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.2] - 2025-11-03
+
+### Fixed
+- Significantly improved logging for charging plan calculation to identify issues
+- Added detailed error messages when calculation fails
+- Now logs each step: checking prerequisites, fetching price data, analyzing prices
+- Marks `last_calculated` even when no optimal plan is found
+
+### Added
+- Manual "Neu berechnen" button in charging plan card for testing
+- New API endpoint `/api/recalculate_plan` to manually trigger calculation
+- Better visibility of why charging plan calculation succeeds or fails
+
+### Improved
+- Logging now shows: number of prices (today/tomorrow), sensor names, missing data
+- Error messages appear in system logs AND in dashboard logs
+- Helps diagnose issues with Tibber sensor or missing price data
+
 ## [0.3.1] - 2025-11-03
 
 ### Changed
