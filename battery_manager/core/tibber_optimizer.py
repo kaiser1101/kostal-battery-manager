@@ -30,7 +30,8 @@ class TibberOptimizer:
         Returns:
             datetime des optimalen Ladeendes oder None
         """
-        now = datetime.now()
+        # v0.3.3 - Use timezone-aware datetime for comparison
+        now = datetime.now().astimezone()
 
         # Brauchen mindestens 6 Datenpunkte (3 zurück, aktuell, 2 voraus)
         if len(prices) < 6:
@@ -124,7 +125,8 @@ class TibberOptimizer:
         Returns:
             (should_charge: bool, reason: str)
         """
-        now = datetime.now()
+        # v0.3.3 - Use timezone-aware datetime for comparison
+        now = datetime.now().astimezone()
 
         # Sicherheit: SOC zu niedrig
         if current_soc < min_soc:
