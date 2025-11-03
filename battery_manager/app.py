@@ -474,6 +474,23 @@ def api_charging_plan():
 
     return jsonify(response)
 
+@app.route('/api/recalculate_plan', methods=['POST'])
+def api_recalculate_plan():
+    """Manually trigger charging plan recalculation (v0.3.2)"""
+    try:
+        add_log('INFO', 'Manual charging plan recalculation triggered')
+        update_charging_plan()
+        return jsonify({
+            'status': 'ok',
+            'message': 'Charging plan recalculated'
+        })
+    except Exception as e:
+        logger.error(f"Error in manual recalculation: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
 @app.route('/api/adjust_power', methods=['POST'])
 def api_adjust_power():
     """Adjust charging power during active charging (v0.2.0)"""
@@ -538,15 +555,33 @@ def internal_error(error):
 def update_charging_plan():
     """Calculate optimal charging schedule based on Tibber prices (v0.3.0)"""
     try:
-        if not ha_client or not tibber_optimizer:
+        logger.info("Starting charging plan calculation...")
+        add_log('INFO', 'Calculating charging plan...')
+
+        # Check prerequisites
+        if not ha_client:
+            logger.warning("HA client not available - cannot calculate charging plan")
+            add_log('WARNING', 'Charging plan calculation skipped: HA client not available')
+            return
+
+        if not tibber_optimizer:
+            logger.warning("Tibber optimizer not available - cannot calculate charging plan")
+            add_log('WARNING', 'Charging plan calculation skipped: Tibber optimizer not available')
             return
 
         # Hole Tibber-Preise
         tibber_sensor = config.get('tibber_price_sensor', 'sensor.tibber_prices')
+        logger.info(f"Fetching price data from sensor: {tibber_sensor}")
         prices_data = ha_client.get_state_with_attributes(tibber_sensor)
 
-        if not prices_data or 'attributes' not in prices_data:
-            logger.warning("Could not get Tibber price data")
+        if not prices_data:
+            logger.warning(f"Could not get data from {tibber_sensor}")
+            add_log('WARNING', f'No data from Tibber sensor: {tibber_sensor}')
+            return
+
+        if 'attributes' not in prices_data:
+            logger.warning(f"Sensor {tibber_sensor} has no attributes")
+            add_log('WARNING', f'Tibber sensor {tibber_sensor} missing attributes')
             return
 
         # Kombiniere heute + morgen Preise
@@ -554,17 +589,23 @@ def update_charging_plan():
         tomorrow = prices_data['attributes'].get('tomorrow', [])
         all_prices = today + tomorrow
 
+        logger.info(f"Price data: {len(today)} today, {len(tomorrow)} tomorrow = {len(all_prices)} total")
+
         if not all_prices:
-            logger.warning("No price data available")
+            logger.warning("No price data in today/tomorrow attributes")
+            add_log('WARNING', 'No Tibber price data available (today/tomorrow empty)')
             return
 
         # Finde optimales Ladeende
+        logger.info("Analyzing prices to find optimal charge end time...")
         charge_end = tibber_optimizer.find_optimal_charge_end_time(all_prices)
 
         if charge_end:
             # Hole aktuellen SOC
             current_soc = app_state['battery']['soc']
             max_soc = config.get('max_soc', 95)
+
+            logger.info(f"Found optimal charge end time: {charge_end}, current SOC: {current_soc}%, target: {max_soc}%")
 
             # Berechne Ladebeginn
             charge_start = tibber_optimizer.calculate_charge_start_time(
@@ -576,7 +617,7 @@ def update_charging_plan():
             app_state['charging_plan']['planned_end'] = charge_end.isoformat()
             app_state['charging_plan']['last_calculated'] = datetime.now().isoformat()
 
-            add_log('INFO', f'Charging plan updated: {charge_start.strftime("%H:%M")} - {charge_end.strftime("%H:%M")}')
+            add_log('INFO', f'✓ Ladeplan berechnet: Start {charge_start.strftime("%d.%m. %H:%M")} - Ende {charge_end.strftime("%d.%m. %H:%M")}')
 
             # Optional: Setze auch Home Assistant Input Datetime
             try:
@@ -585,14 +626,21 @@ def update_charging_plan():
 
                 if input_end:
                     ha_client.set_datetime(input_end, charge_end)
+                    logger.debug(f"Updated {input_end}")
                 if input_start:
                     ha_client.set_datetime(input_start, charge_start)
+                    logger.debug(f"Updated {input_start}")
             except Exception as e:
                 logger.warning(f"Could not set input_datetime: {e}")
+        else:
+            logger.info("No optimal charge end time found - prices remain low or insufficient data")
+            add_log('INFO', 'Kein optimaler Ladezeitpunkt gefunden (Preise bleiben günstig)')
+            # Mark calculation as done even if no plan was created
+            app_state['charging_plan']['last_calculated'] = datetime.now().isoformat()
 
     except Exception as e:
-        logger.error(f"Error updating charging plan: {e}")
-        add_log('ERROR', f'Failed to update charging plan: {str(e)}')
+        logger.error(f"Error updating charging plan: {e}", exc_info=True)
+        add_log('ERROR', f'Fehler bei Ladeplan-Berechnung: {str(e)}')
 
 
 def controller_loop():
