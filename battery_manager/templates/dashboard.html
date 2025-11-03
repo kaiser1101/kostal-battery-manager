@@ -90,14 +90,18 @@
         </div>
         <div class="power-slider">
             <label for="charge-power">Ladeleistung: <span id="power-display">{{ config.max_charge_power }}</span> W</label>
-            <input type="range" 
-                   id="charge-power" 
-                   min="500" 
-                   max="{{ config.max_charge_power }}" 
-                   step="100" 
+            <input type="range"
+                   id="charge-power"
+                   min="500"
+                   max="{{ config.max_charge_power }}"
+                   step="100"
                    value="{{ config.max_charge_power }}"
-                   oninput="document.getElementById('power-display').textContent = this.value">
+                   oninput="document.getElementById('power-display').textContent = this.value"
+                   onchange="adjustPowerIfCharging(this.value)">
         </div>
+        <button onclick="syncSocLimits()" class="btn btn-warning" style="margin-top: 1rem;">
+            🔄 SOC Limits synchronisieren
+        </button>
     </div>
 
     <!-- Forecast -->
@@ -292,7 +296,7 @@ function autoMode() {
 
 function testConnection() {
     showLoading('Teste Verbindung...');
-    
+
     fetch('api/control', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -308,6 +312,62 @@ function testConnection() {
         showNotification('error', 'Verbindungstest fehlgeschlagen');
         console.error(error);
     });
+}
+
+// v0.2.0: Adjust power during active charging
+function adjustPowerIfCharging(power) {
+    // Check if currently charging
+    fetch('api/status')
+        .then(response => response.json())
+        .then(data => {
+            if (data.inverter.mode === 'manual_charging' || data.inverter.mode === 'auto_charging') {
+                // Adjust power
+                fetch('api/adjust_power', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({power: parseInt(power)})
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.status === 'ok') {
+                        showNotification('success', `Ladeleistung auf ${power}W angepasst`);
+                    } else {
+                        showNotification('error', 'Fehler beim Anpassen der Leistung');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error adjusting power:', error);
+                    showNotification('error', 'Fehler beim Anpassen der Leistung');
+                });
+            }
+        })
+        .catch(error => console.error('Error checking status:', error));
+}
+
+// v0.2.0: Synchronize SOC limits to inverter
+function syncSocLimits() {
+    if (confirm('SOC Limits zum Wechselrichter synchronisieren?')) {
+        showLoading('Synchronisiere SOC Limits...');
+
+        fetch('api/sync_soc', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        })
+        .then(response => response.json())
+        .then(data => {
+            hideLoading();
+            if (data.status === 'ok') {
+                showNotification('success', data.message);
+            } else {
+                showNotification('error', data.message || 'Fehler beim Synchronisieren');
+            }
+        })
+        .catch(error => {
+            hideLoading();
+            showNotification('error', 'Fehler beim Synchronisieren der SOC Limits');
+            console.error(error);
+        });
+    }
 }
 
 // Cleanup on page unload

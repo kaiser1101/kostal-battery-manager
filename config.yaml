@@ -1,5 +1,5 @@
 name: Kostal Battery Manager
-version: "0.1.1"
+version: "0.2.0"
 slug: kostal_battery_manager
 description: "Intelligente Batteriesteuerung für Kostal Plenticore Plus mit Tibber-Optimierung"
 url: "https://github.com/SvenSteuer/kostal-battery-manager"
@@ -36,6 +36,13 @@ options:
   control_interval: 30
   enable_tibber_optimization: true
   price_threshold: 0.85
+  battery_power_sensor: "sensor.zwh8_8500_battery_power"
+  battery_voltage_sensor: ""
+  tibber_price_sensor: "sensor.tibber_prices"
+  tibber_price_level_sensor: "sensor.tibber_price_level_deutsch"
+  pv_forecast_sensor: "sensor.solcast_pv_forecast_today"
+  consumption_sensor: "sensor.verbleibende_solarerzeugung_heute"
+  auto_optimization_enabled: true
 
 schema:
   inverter_ip: str
@@ -48,17 +55,26 @@ schema:
   battery_capacity: float(1.0,100.0)
   log_level: list(debug|info|warning|error)
   control_interval: int(10,300)
-  
+
   # Tibber Integration
   enable_tibber_optimization: bool
   price_threshold: float(0.5,1.0)
-  
+
   # Forecast Integration (optional)
   forecast_sensor_1: str?
   forecast_sensor_2: str?
-  
+
   # Battery SOC Sensor
   battery_soc_sensor: str?
+
+  # v0.2.0 - New Sensors
+  battery_power_sensor: str?
+  battery_voltage_sensor: str?
+  tibber_price_sensor: str?
+  tibber_price_level_sensor: str?
+  pv_forecast_sensor: str?
+  consumption_sensor: str?
+  auto_optimization_enabled: bool
 
 map:
   - data:rw
