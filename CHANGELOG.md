@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.4] - 2025-11-03
+
+### Fixed
+- Charging power slider value now correctly applied when starting charge
+- Previously always used max_charge_power, now uses slider value
+- Dark mode text visibility significantly improved with white text
+
+### Changed
+- Improved dark mode: All text now white (#ffffff) for better readability
+- Labels and secondary text in light gray (#cccccc) in dark mode
+
 ## [0.2.3] - 2025-11-03
 
 ### Added

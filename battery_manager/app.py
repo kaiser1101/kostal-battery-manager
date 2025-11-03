@@ -357,10 +357,11 @@ def api_control():
             if kostal_api and modbus_client:
                 # Set external control mode
                 kostal_api.set_external_control(True)
-                # Set charge power
-                charge_power = -config['max_charge_power']
+                # Get charge power from request or use max_charge_power as fallback
+                requested_power = data.get('power', config['max_charge_power'])
+                charge_power = -abs(int(requested_power))
                 modbus_client.write_battery_power(charge_power)
-                
+
                 app_state['inverter']['mode'] = 'manual_charging'
                 app_state['inverter']['control_mode'] = 'external'
                 add_log('INFO', f'Manual charging started: {charge_power}W')
