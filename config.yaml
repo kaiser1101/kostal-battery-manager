@@ -1,0 +1,61 @@
+name: Kostal Battery Manager
+version: "0.1.0"
+slug: kostal_battery_manager
+description: "Intelligente Batteriesteuerung für Kostal Plenticore Plus mit Tibber-Optimierung"
+url: "https://github.com/IHR_USERNAME/kostal-battery-manager"
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+init: false
+startup: application
+boot: auto
+ingress: true
+ingress_port: 8099
+ingress_stream: false
+panel_icon: mdi:battery-charging
+panel_title: Battery Manager
+hassio_api: true
+homeassistant_api: true
+
+options:
+  inverter_ip: "192.168.80.76"
+  inverter_port: 1502
+  installer_password: ""
+  master_password: ""
+  max_charge_power: 3900
+  min_soc: 20
+  max_soc: 95
+  battery_capacity: 10.6
+  log_level: "info"
+  control_interval: 30
+  enable_tibber_optimization: true
+  price_threshold: 0.85
+
+schema:
+  inverter_ip: str
+  inverter_port: port
+  installer_password: password
+  master_password: password
+  max_charge_power: int(100,10000)
+  min_soc: int(5,95)
+  max_soc: int(10,100)
+  battery_capacity: float(1.0,100.0)
+  log_level: list(debug|info|warning|error)
+  control_interval: int(10,300)
+  
+  # Tibber Integration
+  enable_tibber_optimization: bool
+  price_threshold: float(0.5,1.0)
+  
+  # Forecast Integration (optional)
+  forecast_sensor_1: str?
+  forecast_sensor_2: str?
+  
+  # Battery SOC Sensor
+  battery_soc_sensor: str?
+
+map:
+  - data:rw
