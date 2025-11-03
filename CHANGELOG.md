@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.2.5] - 2025-11-03
+
+### Added
+- Automation status display in status overview
+- Toggle switch for automation (replaces button)
+- Configurable automation parameters:
+  - `auto_pv_threshold`: PV forecast threshold (default 5.0 kWh)
+  - `auto_charge_below_soc`: Maximum SOC for charging (default 95%)
+  - `auto_safety_soc`: Safety minimum SOC (default 20%)
+- New API endpoint: `/api/control` with `toggle_automation` action
+
+### Changed
+- Automation is now ON by default on startup
+- Controller logic uses configurable parameters instead of hardcoded values
+- Improved automation status visibility with toggle switch and status indicator
+- Button replaced with professional toggle switch for better UX
+
+### UI
+- Real-time automation status display (AN/AUS with colored dot)
+- Toggle switch shows current state and allows easy on/off control
+- Automation parameters now configurable in addon configuration
+
 ## [0.2.4] - 2025-11-03
 
 ### Fixed
