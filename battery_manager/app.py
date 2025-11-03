@@ -604,6 +604,10 @@ def controller_loop():
     last_plan_update = None
     plan_update_interval = 300  # 5 Minuten
 
+    # v0.3.1 - Calculate charging plan immediately on startup
+    update_charging_plan()
+    last_plan_update = datetime.now()
+
     while True:
         try:
             # Update charging plan periodically (v0.3.0)
