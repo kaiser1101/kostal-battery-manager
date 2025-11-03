@@ -84,8 +84,6 @@ def load_config():
         'tibber_price_threshold_1h': 8,
         'tibber_price_threshold_3h': 8,
         'charge_duration_per_10_percent': 18,
-        'min_soc': 20,
-        'max_soc': 95,
         'input_datetime_planned_charge_end': 'input_datetime.tibber_geplantes_ladeende',
         'input_datetime_planned_charge_start': 'input_datetime.tibber_geplanter_ladebeginn'
     }
@@ -603,7 +601,7 @@ def update_charging_plan():
         if charge_end:
             # Hole aktuellen SOC
             current_soc = app_state['battery']['soc']
-            max_soc = config.get('max_soc', 95)
+            max_soc = config.get('auto_charge_below_soc', 95)
 
             logger.info(f"Found optimal charge end time: {charge_end}, current SOC: {current_soc}%, target: {max_soc}%")
 
@@ -675,8 +673,9 @@ def controller_loop():
                         ) or 0)
                         app_state['battery']['soc'] = current_soc
 
-                        min_soc = config.get('min_soc', 20)
-                        max_soc = config.get('max_soc', 95)
+                        # v0.3.4 - Use existing parameters consistently
+                        min_soc = config.get('auto_safety_soc', 20)
+                        max_soc = config.get('auto_charge_below_soc', 95)
 
                         # Hole verbleibende PV-Prognose
                         pv_remaining = 0
