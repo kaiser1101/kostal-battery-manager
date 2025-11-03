@@ -21,8 +21,17 @@
         --bg-color: #121212;
         --card-bg: #1e1e1e;
         --text-color: #ffffff;
-        --text-muted: #b0b0b0;
+        --text-muted: #cccccc;
         --border-color: #333333;
+    }
+
+    /* Ensure white text in dark mode */
+    body, .card, .status-item .value, .battery-soc, .big-number {
+        color: #ffffff !important;
+    }
+
+    .status-item .label, .battery-power, .price-info, .unit {
+        color: #cccccc !important;
     }
 
     /* Better contrast for dark mode */
@@ -42,6 +51,7 @@
     .form-group select {
         background-color: rgba(255,255,255,0.08);
         border-color: #555555;
+        color: #ffffff;
     }
 
     .logs-container {
