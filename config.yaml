@@ -1,5 +1,5 @@
 name: Kostal Battery Manager
-version: "0.2.4"
+version: "0.2.5"
 slug: kostal_battery_manager
 description: "Intelligente Batteriesteuerung für Kostal Plenticore Plus mit Tibber-Optimierung"
 url: "https://github.com/SvenSteuer/kostal-battery-manager"
@@ -41,6 +41,10 @@ options:
   tibber_price_sensor: "sensor.tibber_prices"
   tibber_price_level_sensor: "sensor.tibber_price_level_deutsch"
   auto_optimization_enabled: true
+  # v0.2.5 - Automation Parameters
+  auto_pv_threshold: 5.0
+  auto_charge_below_soc: 95
+  auto_safety_soc: 20
   # PV Production Sensors (v0.2.1 - beide Dachausrichtungen)
   pv_power_now_roof1: "sensor.power_production_now_roof1"
   pv_power_now_roof2: "sensor.power_production_now_roof2"
@@ -78,6 +82,11 @@ schema:
   tibber_price_sensor: str?
   tibber_price_level_sensor: str?
   auto_optimization_enabled: bool
+
+  # v0.2.5 - Automation Parameters
+  auto_pv_threshold: float(0.0,50.0)
+  auto_charge_below_soc: int(10,100)
+  auto_safety_soc: int(5,50)
 
   # v0.2.1 - PV Production Sensors (Dual Roof)
   pv_power_now_roof1: str?

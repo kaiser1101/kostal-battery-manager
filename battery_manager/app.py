@@ -67,6 +67,10 @@ def load_config():
         'tibber_price_sensor': 'sensor.tibber_prices',
         'tibber_price_level_sensor': 'sensor.tibber_price_level_deutsch',
         'auto_optimization_enabled': True,
+        # v0.2.5 - Automation Parameters
+        'auto_pv_threshold': 5.0,
+        'auto_charge_below_soc': 95,
+        'auto_safety_soc': 20,
         # v0.2.1 - PV Production Sensors (Dual Roof)
         'pv_power_now_roof1': 'sensor.power_production_now_roof1',
         'pv_power_now_roof2': 'sensor.power_production_now_roof2',
@@ -85,7 +89,7 @@ config = load_config()
 
 # Global state
 app_state = {
-    'controller_running': False,
+    'controller_running': True,  # v0.2.5 - Automation ON by default
     'last_update': None,
     'battery': {
         'soc': 0,
@@ -385,7 +389,16 @@ def api_control():
             app_state['controller_running'] = True
             app_state['inverter']['mode'] = 'automatic'
             add_log('INFO', 'Automatic optimization mode enabled')
-            
+
+        elif action == 'toggle_automation':
+            # v0.2.5 - Toggle automation on/off
+            enabled = data.get('enabled', True)
+            app_state['controller_running'] = enabled
+            if enabled:
+                add_log('INFO', 'Automatik aktiviert')
+            else:
+                add_log('INFO', 'Automatik deaktiviert')
+
         elif action == 'test_connection':
             # Test connection to inverter
             if kostal_api:
@@ -527,18 +540,20 @@ def controller_loop():
                         # Rule 1: Very cheap prices and low SOC
                         # Support both German and English price levels
                         cheap_levels = ['CHEAP', 'VERY_CHEAP', 'günstig', 'sehr günstig']
-                        if current_price_level in cheap_levels and \
-                           current_soc < config.get('max_soc', 95):
-                            # Only charge if low PV forecast (less than 5 kWh expected)
-                            if pv_remaining < 5:
+                        pv_threshold = config.get('auto_pv_threshold', 5.0)  # v0.2.5
+                        charge_below_soc = config.get('auto_charge_below_soc', 95)  # v0.2.5
+                        if current_price_level in cheap_levels and current_soc < charge_below_soc:
+                            # Only charge if low PV forecast
+                            if pv_remaining < pv_threshold:
                                 should_charge = True
                                 logger.debug(f"Rule 1: Cheap price ({current_price_level}), " +
-                                           f"low PV remaining ({pv_remaining} kWh)")
+                                           f"low PV remaining ({pv_remaining} kWh < {pv_threshold})")
 
                         # Rule 2: SOC below minimum (safety)
-                        if current_soc < config.get('min_soc', 20):
+                        safety_soc = config.get('auto_safety_soc', 20)  # v0.2.5
+                        if current_soc < safety_soc:
                             should_charge = True
-                            logger.debug(f"Rule 2: SOC {current_soc}% below minimum")
+                            logger.debug(f"Rule 2: SOC {current_soc}% below safety minimum {safety_soc}%")
 
                         # Rule 3: Expensive prices - don't charge
                         expensive_levels = ['EXPENSIVE', 'VERY_EXPENSIVE', 'teuer', 'sehr teuer']

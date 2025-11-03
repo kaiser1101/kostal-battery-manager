@@ -15,6 +15,12 @@
                 </span>
             </div>
             <div class="status-item">
+                <span class="label">Automatik:</span>
+                <span class="value" id="auto-status">
+                    <span class="dot connected"></span> AN
+                </span>
+            </div>
+            <div class="status-item">
                 <span class="label">Modus:</span>
                 <span class="value" id="mode">{{ state.inverter.mode }}</span>
             </div>
@@ -81,9 +87,13 @@
             <button onclick="stopCharging()" class="btn btn-secondary">
                 ⏹️ Laden stoppen
             </button>
-            <button onclick="autoMode()" class="btn btn-success">
-                🔄 Automatik
-            </button>
+            <div class="automation-toggle">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="auto-toggle" onchange="toggleAutomation(this.checked)" checked>
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label">🔄 Automatik</span>
+            </div>
         </div>
         <div class="power-slider">
             <label for="charge-power">Ladeleistung: <span id="power-display">{{ config.max_charge_power }}</span> W</label>
@@ -190,7 +200,18 @@ function updateStatus() {
                 connStatus.innerHTML = '<span class="dot disconnected"></span> Getrennt';
                 connStatus.className = 'value connection-status disconnected';
             }
-            
+
+            // v0.2.5 - Update automation status
+            const autoStatus = document.getElementById('auto-status');
+            const autoToggle = document.getElementById('auto-toggle');
+            if (data.controller_running) {
+                autoStatus.innerHTML = '<span class="dot connected"></span> AN';
+                autoToggle.checked = true;
+            } else {
+                autoStatus.innerHTML = '<span class="dot disconnected"></span> AUS';
+                autoToggle.checked = false;
+            }
+
             // Update mode
             document.getElementById('mode').textContent = data.inverter.mode;
             document.getElementById('control-mode').textContent = data.inverter.control_mode;
@@ -279,7 +300,7 @@ function stopCharging() {
 
 function autoMode() {
     showLoading('Aktiviere Automatik...');
-    
+
     fetch('api/control', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -295,6 +316,26 @@ function autoMode() {
         hideLoading();
         showNotification('error', 'Fehler beim Aktivieren der Automatik');
         console.error(error);
+    });
+}
+
+// v0.2.5 - Toggle automation on/off
+function toggleAutomation(enabled) {
+    fetch('api/control', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'toggle_automation', enabled: enabled})
+    })
+    .then(response => response.json())
+    .then(data => {
+        showNotification('success', enabled ? 'Automatik aktiviert' : 'Automatik deaktiviert');
+        updateStatus();
+    })
+    .catch(error => {
+        showNotification('error', 'Fehler beim Umschalten der Automatik');
+        console.error(error);
+        // Revert toggle on error
+        document.getElementById('auto-toggle').checked = !enabled;
     });
 }
 
