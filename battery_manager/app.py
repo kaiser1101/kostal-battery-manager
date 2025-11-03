@@ -79,7 +79,15 @@ def load_config():
         'pv_production_tomorrow_roof1': 'sensor.energy_production_tomorrow_roof1',
         'pv_production_tomorrow_roof2': 'sensor.energy_production_tomorrow_roof2',
         'pv_next_hour_roof1': 'sensor.energy_next_hour_roof1',
-        'pv_next_hour_roof2': 'sensor.energy_next_hour_roof2'
+        'pv_next_hour_roof2': 'sensor.energy_next_hour_roof2',
+        # v0.3.0 - Tibber Smart Charging
+        'tibber_price_threshold_1h': 8,
+        'tibber_price_threshold_3h': 8,
+        'charge_duration_per_10_percent': 18,
+        'min_soc': 20,
+        'max_soc': 95,
+        'input_datetime_planned_charge_end': 'input_datetime.tibber_geplantes_ladeende',
+        'input_datetime_planned_charge_start': 'input_datetime.tibber_geplanter_ladebeginn'
     }
 
 # Load configuration
@@ -107,6 +115,11 @@ app_state = {
     'forecast': {
         'today': 0.0,
         'tomorrow': 0.0
+    },
+    'charging_plan': {
+        'planned_start': None,
+        'planned_end': None,
+        'last_calculated': None
     },
     'logs': []
 }
@@ -138,6 +151,7 @@ try:
         from .core.kostal_api import KostalAPI
         from .core.modbus_client import ModbusClient
         from .core.ha_client import HomeAssistantClient
+        from .core.tibber_optimizer import TibberOptimizer
     except ImportError:
         # Fall back to absolute import
         import sys
@@ -145,6 +159,7 @@ try:
         from core.kostal_api import KostalAPI
         from core.modbus_client import ModbusClient
         from core.ha_client import HomeAssistantClient
+        from core.tibber_optimizer import TibberOptimizer
     
     # Initialize components
     kostal_api = KostalAPI(
@@ -157,8 +172,10 @@ try:
         config['inverter_port']
     )
     ha_client = HomeAssistantClient()
+    tibber_optimizer = TibberOptimizer(config)
 
     add_log('INFO', 'Components initialized successfully')
+    add_log('INFO', 'Tibber Optimizer initialized')
 
     # Automatic connection test on startup
     if kostal_api:
@@ -175,12 +192,14 @@ except ImportError as e:
     kostal_api = None
     modbus_client = None
     ha_client = None
+    tibber_optimizer = None
     add_log('WARNING', 'Running in development mode - components not available')
 except Exception as e:
     logger.error(f"Error initializing components: {e}")
     kostal_api = None
     modbus_client = None
     ha_client = None
+    tibber_optimizer = None
     add_log('ERROR', f'Failed to initialize components: {str(e)}')
 
 # ==============================================================================
@@ -312,7 +331,8 @@ def api_status():
         'battery': app_state['battery'],
         'price': app_state['price'],
         'forecast': app_state['forecast'],
-        'pv': app_state.get('pv', {'power_now': 0, 'remaining_today': 0})
+        'pv': app_state.get('pv', {'power_now': 0, 'remaining_today': 0}),
+        'charging_plan': app_state.get('charging_plan', {})
     })
 
 @app.route('/api/config', methods=['GET', 'POST'])
@@ -439,6 +459,21 @@ def api_logs():
         'logs': app_state['logs']
     })
 
+@app.route('/api/charging_plan')
+def api_charging_plan():
+    """Get current charging plan (v0.3.0)"""
+    plan = app_state.get('charging_plan', {})
+
+    # Format für Frontend
+    response = {
+        'has_plan': plan.get('planned_start') is not None,
+        'planned_start': plan.get('planned_start'),
+        'planned_end': plan.get('planned_end'),
+        'last_calculated': plan.get('last_calculated')
+    }
+
+    return jsonify(response)
+
 @app.route('/api/adjust_power', methods=['POST'])
 def api_adjust_power():
     """Adjust charging power during active charging (v0.2.0)"""
@@ -500,26 +535,98 @@ def internal_error(error):
 # Background Controller Thread
 # ==============================================================================
 
+def update_charging_plan():
+    """Calculate optimal charging schedule based on Tibber prices (v0.3.0)"""
+    try:
+        if not ha_client or not tibber_optimizer:
+            return
+
+        # Hole Tibber-Preise
+        tibber_sensor = config.get('tibber_price_sensor', 'sensor.tibber_prices')
+        prices_data = ha_client.get_state_with_attributes(tibber_sensor)
+
+        if not prices_data or 'attributes' not in prices_data:
+            logger.warning("Could not get Tibber price data")
+            return
+
+        # Kombiniere heute + morgen Preise
+        today = prices_data['attributes'].get('today', [])
+        tomorrow = prices_data['attributes'].get('tomorrow', [])
+        all_prices = today + tomorrow
+
+        if not all_prices:
+            logger.warning("No price data available")
+            return
+
+        # Finde optimales Ladeende
+        charge_end = tibber_optimizer.find_optimal_charge_end_time(all_prices)
+
+        if charge_end:
+            # Hole aktuellen SOC
+            current_soc = app_state['battery']['soc']
+            max_soc = config.get('max_soc', 95)
+
+            # Berechne Ladebeginn
+            charge_start = tibber_optimizer.calculate_charge_start_time(
+                charge_end, current_soc, max_soc
+            )
+
+            # Speichere im State
+            app_state['charging_plan']['planned_start'] = charge_start.isoformat()
+            app_state['charging_plan']['planned_end'] = charge_end.isoformat()
+            app_state['charging_plan']['last_calculated'] = datetime.now().isoformat()
+
+            add_log('INFO', f'Charging plan updated: {charge_start.strftime("%H:%M")} - {charge_end.strftime("%H:%M")}')
+
+            # Optional: Setze auch Home Assistant Input Datetime
+            try:
+                input_end = config.get('input_datetime_planned_charge_end')
+                input_start = config.get('input_datetime_planned_charge_start')
+
+                if input_end:
+                    ha_client.set_datetime(input_end, charge_end)
+                if input_start:
+                    ha_client.set_datetime(input_start, charge_start)
+            except Exception as e:
+                logger.warning(f"Could not set input_datetime: {e}")
+
+    except Exception as e:
+        logger.error(f"Error updating charging plan: {e}")
+        add_log('ERROR', f'Failed to update charging plan: {str(e)}')
+
+
 def controller_loop():
     """Background thread for battery control"""
     import time
     logger.info("Controller loop started")
 
+    # Ladeplan-Update Intervall (alle 5 Minuten)
+    last_plan_update = None
+    plan_update_interval = 300  # 5 Minuten
+
     while True:
         try:
+            # Update charging plan periodically (v0.3.0)
+            now = datetime.now()
+            if (last_plan_update is None or
+                (now - last_plan_update).total_seconds() > plan_update_interval):
+                update_charging_plan()
+                last_plan_update = now
+
             if app_state['controller_running'] and config.get('auto_optimization_enabled', True):
-                # Auto-optimization logic (v0.2.1)
-                if ha_client and kostal_api and modbus_client:
+                # v0.3.0 - Intelligent Tibber-based charging
+                if ha_client and kostal_api and modbus_client and tibber_optimizer:
                     try:
-                        # Get current data from Home Assistant
-                        current_price_level = ha_client.get_state(
-                            config.get('tibber_price_level_sensor')
-                        )
+                        # Hole aktuelle Werte
                         current_soc = float(ha_client.get_state(
                             config.get('battery_soc_sensor', 'sensor.zwh8_8500_battery_soc')
                         ) or 0)
+                        app_state['battery']['soc'] = current_soc
 
-                        # Get PV remaining forecast (sum of both roofs) - v0.2.1
+                        min_soc = config.get('min_soc', 20)
+                        max_soc = config.get('max_soc', 95)
+
+                        # Hole verbleibende PV-Prognose
                         pv_remaining = 0
                         for roof in ['roof1', 'roof2']:
                             sensor = config.get(f'pv_remaining_today_{roof}')
@@ -528,55 +635,33 @@ def controller_loop():
                                 if remaining and remaining not in ['unknown', 'unavailable']:
                                     pv_remaining += float(remaining)
 
-                        # Update app state
-                        if current_price_level:
-                            app_state['price']['level'] = current_price_level
+                        # Parse planned start time
+                        planned_start = None
+                        if app_state['charging_plan']['planned_start']:
+                            planned_start = datetime.fromisoformat(app_state['charging_plan']['planned_start'])
 
-                        # Decision logic
-                        should_charge = False
+                        # Entscheide ob geladen werden soll
+                        should_charge, reason = tibber_optimizer.should_charge_now(
+                            planned_start, current_soc, min_soc, max_soc, pv_remaining
+                        )
 
-                        # Rule 1: Very cheap prices and low SOC
-                        # Support both German and English price levels
-                        cheap_levels = ['CHEAP', 'VERY_CHEAP', 'günstig', 'sehr günstig']
-                        pv_threshold = config.get('auto_pv_threshold', 5.0)  # v0.2.5
-                        charge_below_soc = config.get('auto_charge_below_soc', 95)  # v0.2.5
-                        if current_price_level in cheap_levels and current_soc < charge_below_soc:
-                            # Only charge if low PV forecast
-                            if pv_remaining < pv_threshold:
-                                should_charge = True
-                                logger.debug(f"Rule 1: Cheap price ({current_price_level}), " +
-                                           f"low PV remaining ({pv_remaining} kWh < {pv_threshold})")
-
-                        # Rule 2: SOC below minimum (safety)
-                        safety_soc = config.get('auto_safety_soc', 20)  # v0.2.5
-                        if current_soc < safety_soc:
-                            should_charge = True
-                            logger.debug(f"Rule 2: SOC {current_soc}% below safety minimum {safety_soc}%")
-
-                        # Rule 3: Expensive prices - don't charge
-                        expensive_levels = ['EXPENSIVE', 'VERY_EXPENSIVE', 'teuer', 'sehr teuer']
-                        if current_price_level in expensive_levels:
-                            should_charge = False
-                            logger.debug(f"Rule 3: Expensive price ({current_price_level}), " +
-                                       "not charging")
-
-                        # Execute action
-                        if should_charge and app_state['inverter']['mode'] not in \
-                           ['manual_charging', 'auto_charging']:
-                            # Start charging
+                        # Aktion ausführen
+                        if should_charge and app_state['inverter']['mode'] not in ['manual_charging', 'auto_charging']:
+                            # Starte automatisches Laden
                             kostal_api.set_external_control(True)
                             charge_power = -config['max_charge_power']
                             modbus_client.write_battery_power(charge_power)
                             app_state['inverter']['mode'] = 'auto_charging'
-                            add_log('INFO',
-                                  f'Auto-Optimization: Started charging at {current_price_level}')
+                            app_state['inverter']['control_mode'] = 'external'
+                            add_log('INFO', f'Auto-Optimization started charging: {reason}')
 
                         elif not should_charge and app_state['inverter']['mode'] == 'auto_charging':
-                            # Stop charging
+                            # Stoppe automatisches Laden
                             modbus_client.write_battery_power(0)
                             kostal_api.set_external_control(False)
                             app_state['inverter']['mode'] = 'automatic'
-                            add_log('INFO', 'Auto-Optimization: Stopped charging')
+                            app_state['inverter']['control_mode'] = 'internal'
+                            add_log('INFO', f'Auto-Optimization stopped charging: {reason}')
 
                     except Exception as e:
                         logger.error(f"Error in auto-optimization: {e}")
