@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.2] - 2025-11-03
+
+### Fixed
+- Tibber current price now correctly read from sensor state
+- Tibber price level correctly read from German level sensor
+- Average price calculation from Tibber attributes working
+- PV forecast tomorrow now displays correctly (sum of both roofs)
+
+### Changed
+- Simplified Tibber price reading logic (removed complex timezone parsing)
+- Controller now supports both German and English price levels
+- Added automatic dark/light mode detection
+- Light mode is now the default for better readability
+
+### UI
+- Automatic dark mode activation when system prefers dark color scheme
+- Better contrast in both light and dark mode
+- Improved overall readability
+
 ## [0.2.1] - 2025-11-03
 
 ### Changed
