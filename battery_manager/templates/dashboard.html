@@ -41,8 +41,8 @@
                     <span class="big-number" id="battery-soc">{{ state.battery.soc }}</span>
                     <span class="unit">%</span>
                 </div>
-                <div class="battery-power">
-                    <span id="battery-power">{{ state.battery.power }}</span> W
+                <div class="battery-power" id="battery-power-status">
+                    Batterie in Standby
                 </div>
             </div>
         </div>
@@ -58,15 +58,15 @@
         <div class="price-display">
             <div class="current-price">
                 <span class="label">Aktuell:</span>
-                <span class="big-number" id="current-price">{{ "%.4f"|format(state.price.current) }}</span>
-                <span class="unit">€/kWh</span>
+                <span class="big-number" id="current-price">{{ "%.2f"|format(state.price.current * 100) }}</span>
+                <span class="unit">Cent/kWh</span>
             </div>
             <div class="price-level">
                 <span class="badge" id="price-level">{{ state.price.level }}</span>
             </div>
         </div>
         <div class="price-info">
-            <div>Durchschnitt: <span id="avg-price">{{ "%.4f"|format(state.price.average) }}</span> €/kWh</div>
+            <div>Durchschnitt: <span id="avg-price">{{ "%.2f"|format(state.price.average * 100) }}</span> Cent/kWh</div>
             <div>Schwelle: {{ (config.price_threshold * 100)|int }}%</div>
         </div>
     </div>
@@ -83,9 +83,6 @@
             </button>
             <button onclick="autoMode()" class="btn btn-success">
                 🔄 Automatik
-            </button>
-            <button onclick="testConnection()" class="btn btn-info">
-                🔌 Verbindung testen
             </button>
         </div>
         <div class="power-slider">
@@ -202,11 +199,21 @@ function updateStatus() {
             const soc = data.battery.soc || 0;
             document.getElementById('battery-soc').textContent = soc;
             document.getElementById('battery-level').style.width = soc + '%';
-            document.getElementById('battery-power').textContent = data.battery.power || 0;
-            
-            // Update price
-            document.getElementById('current-price').textContent = (data.price.current || 0).toFixed(4);
-            document.getElementById('avg-price').textContent = (data.price.average || 0).toFixed(4);
+
+            // Update battery power status
+            const batteryPower = data.battery.power || 0;
+            const batteryStatus = document.getElementById('battery-power-status');
+            if (batteryPower > 0) {
+                batteryStatus.textContent = `Batterie wird entladen: ${Math.round(batteryPower)} W`;
+            } else if (batteryPower < 0) {
+                batteryStatus.textContent = `Batterie wird geladen: ${Math.round(Math.abs(batteryPower))} W`;
+            } else {
+                batteryStatus.textContent = 'Batterie in Standby';
+            }
+
+            // Update price (convert to cents)
+            document.getElementById('current-price').textContent = ((data.price.current || 0) * 100).toFixed(2);
+            document.getElementById('avg-price').textContent = ((data.price.average || 0) * 100).toFixed(2);
             document.getElementById('price-level').textContent = data.price.level || 'Unbekannt';
             
             // Update forecast
@@ -287,26 +294,6 @@ function autoMode() {
     .catch(error => {
         hideLoading();
         showNotification('error', 'Fehler beim Aktivieren der Automatik');
-        console.error(error);
-    });
-}
-
-function testConnection() {
-    showLoading('Teste Verbindung...');
-
-    fetch('api/control', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({action: 'test_connection'})
-    })
-    .then(response => response.json())
-    .then(data => {
-        hideLoading();
-        updateStatus();
-    })
-    .catch(error => {
-        hideLoading();
-        showNotification('error', 'Verbindungstest fehlgeschlagen');
         console.error(error);
     });
 }

@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.3] - 2025-11-03
+
+### Added
+- Automatic connection test on startup
+- Intelligent battery status display with charging/discharging/standby states
+
+### Changed
+- Price display now in Cents instead of Euro for better readability
+- Removed navigation menu for cleaner UI (Dashboard, Konfiguration, Logs links)
+- Removed "Verbindung testen" button - now automatic on startup
+- Improved dark mode contrast (darker background, pure white text)
+
+### UI
+- Battery power status: "Batterie wird geladen/entladen: xxxx W" or "Batterie in Standby"
+- Price display: "XX.XX Cent/kWh" instead of "0.XXXX €/kWh"
+- Better visibility in dark mode with improved contrast
+- Simplified header with only title
+
 ## [0.2.2] - 2025-11-03
 
 ### Fixed
