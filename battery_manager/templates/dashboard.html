@@ -125,6 +125,56 @@
 
 {% block scripts %}
 <script>
+// Helper functions - defined here to avoid dependency on app.js
+function showLoading(message = 'Lädt...') {
+    const loadingDiv = document.createElement('div');
+    loadingDiv.id = 'loading-overlay';
+    loadingDiv.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        color: white;
+        font-size: 1.2rem;
+    `;
+    loadingDiv.innerHTML = `<div style="text-align: center;">${message}</div>`;
+    document.body.appendChild(loadingDiv);
+}
+
+function hideLoading() {
+    const loadingDiv = document.getElementById('loading-overlay');
+    if (loadingDiv) {
+        loadingDiv.remove();
+    }
+}
+
+function showNotification(type, message, duration = 3000) {
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 1rem 1.5rem;
+        background: ${type === 'success' ? '#4CAF50' : type === 'error' ? '#f44336' : '#2196F3'};
+        color: white;
+        border-radius: 4px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        z-index: 10000;
+    `;
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+    }, duration);
+}
+
 // Auto-refresh status every 10 seconds
 let refreshInterval = setInterval(updateStatus, 10000);
 updateStatus();
