@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.7] - 2025-11-03
+
+### Fixed
+- Dashboard now displays correct SOC parameters (`auto_safety_soc` and `auto_charge_below_soc` instead of removed `min_soc`/`max_soc`)
+- Updated labels: "Sicherheits-SOC" and "Lade-Limit" for better clarity
+
 ## [0.2.6] - 2025-11-03
 
 ### Changed
