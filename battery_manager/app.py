@@ -227,38 +227,26 @@ def api_status():
         except Exception as e:
             logger.debug(f"Could not read battery voltage: {e}")
 
-        # Read current Tibber price (v0.2.1)
+        # Read current Tibber price (v0.2.1 - simplified)
         try:
-            from datetime import datetime as dt
-            import pytz
-
+            # Current price from main Tibber sensor
             tibber_sensor = config.get('tibber_price_sensor', 'sensor.tibber_prices')
-            prices_data = ha_client.get_state_with_attributes(tibber_sensor)
+            current_price = ha_client.get_state(tibber_sensor)
+            if current_price and current_price not in ['unknown', 'unavailable']:
+                app_state['price']['current'] = float(current_price)
 
+            # Price level from separate German sensor
+            tibber_level_sensor = config.get('tibber_price_level_sensor', 'sensor.tibber_price_level_deutsch')
+            if tibber_level_sensor:
+                price_level = ha_client.get_state(tibber_level_sensor)
+                if price_level and price_level not in ['unknown', 'unavailable']:
+                    app_state['price']['level'] = price_level
+
+            # Calculate average price from attributes
+            prices_data = ha_client.get_state_with_attributes(tibber_sensor)
             if prices_data and 'attributes' in prices_data:
                 today_prices = prices_data['attributes'].get('today', [])
-
-                # Find current price based on time
-                now = dt.now()
-                current_hour = now.hour
-
-                for price_entry in today_prices:
-                    # Parse startsAt time
-                    starts_at_str = price_entry.get('startsAt', '')
-                    if starts_at_str:
-                        # Remove Z and parse
-                        starts_at = dt.fromisoformat(starts_at_str.replace('Z', '+00:00'))
-                        # Convert to local time
-                        local_tz = pytz.timezone('Europe/Berlin')
-                        starts_at_local = starts_at.astimezone(local_tz)
-
-                        if starts_at_local.hour == current_hour:
-                            app_state['price']['current'] = float(price_entry.get('total', 0))
-                            app_state['price']['level'] = price_entry.get('level', 'NORMAL')
-                            break
-
-                # Calculate average price for today
-                if today_prices:
+                if today_prices and isinstance(today_prices, list):
                     avg = sum(p.get('total', 0) for p in today_prices) / len(today_prices)
                     app_state['price']['average'] = float(avg)
         except Exception as e:
@@ -284,8 +272,18 @@ def api_status():
                     if remaining and remaining not in ['unknown', 'unavailable']:
                         pv_remaining_today += float(remaining)
 
+            # Production forecast tomorrow (sum of both roofs)
+            pv_tomorrow = 0
+            for roof in ['roof1', 'roof2']:
+                sensor = config.get(f'pv_production_tomorrow_{roof}')
+                if sensor:
+                    tomorrow = ha_client.get_state(sensor)
+                    if tomorrow and tomorrow not in ['unknown', 'unavailable']:
+                        pv_tomorrow += float(tomorrow)
+
             # Update app state
             app_state['forecast']['today'] = pv_remaining_today
+            app_state['forecast']['tomorrow'] = pv_tomorrow
             app_state['pv'] = {
                 'power_now': pv_power_now,
                 'remaining_today': pv_remaining_today
@@ -515,7 +513,9 @@ def controller_loop():
                         should_charge = False
 
                         # Rule 1: Very cheap prices and low SOC
-                        if current_price_level in ['CHEAP', 'VERY_CHEAP'] and \
+                        # Support both German and English price levels
+                        cheap_levels = ['CHEAP', 'VERY_CHEAP', 'günstig', 'sehr günstig']
+                        if current_price_level in cheap_levels and \
                            current_soc < config.get('max_soc', 95):
                             # Only charge if low PV forecast (less than 5 kWh expected)
                             if pv_remaining < 5:
@@ -529,7 +529,8 @@ def controller_loop():
                             logger.debug(f"Rule 2: SOC {current_soc}% below minimum")
 
                         # Rule 3: Expensive prices - don't charge
-                        if current_price_level in ['EXPENSIVE', 'VERY_EXPENSIVE']:
+                        expensive_levels = ['EXPENSIVE', 'VERY_EXPENSIVE', 'teuer', 'sehr teuer']
+                        if current_price_level in expensive_levels:
                             should_charge = False
                             logger.debug(f"Rule 3: Expensive price ({current_price_level}), " +
                                        "not charging")
