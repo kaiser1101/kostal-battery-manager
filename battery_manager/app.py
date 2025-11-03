@@ -53,8 +53,6 @@ def load_config():
         'installer_password': '',
         'master_password': '',
         'max_charge_power': 3900,
-        'min_soc': 20,
-        'max_soc': 95,
         'battery_capacity': 10.6,
         'log_level': 'info',
         'control_interval': 30,

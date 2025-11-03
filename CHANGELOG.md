@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.6] - 2025-11-03
+
+### Changed
+- Removed duplicate SOC parameters `min_soc` and `max_soc` (now only using `auto_safety_soc` and `auto_charge_below_soc` for clarity)
+- Renamed "Modus" to "Status" in status overview with German labels:
+  - "Standby" (statt "automatic")
+  - "Lädt (manuell)" (statt "manual_charging")
+  - "Lädt (Auto)" (statt "auto_charging")
+- Removed redundant "Steuerung" display from status overview
+
+### Removed
+- Config parameters `min_soc` and `max_soc` (replaced by clearer `auto_safety_soc` and `auto_charge_below_soc`)
+
 ## [0.2.5] - 2025-11-03
 
 ### Added
