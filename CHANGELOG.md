@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.3] - 2025-11-03
+
+### Fixed
+- **Critical:** Fixed timezone comparison error preventing charging plan calculation
+- Changed `datetime.now()` to `datetime.now().astimezone()` for timezone-aware comparisons
+- Resolved "can't compare offset-naive and offset-aware datetimes" error
+- Charging plan calculation now works correctly with Tibber price data
+
+### Technical
+- All datetime comparisons in TibberOptimizer are now timezone-aware
+- Properly handles timezone information from Tibber sensor data (UTC/ISO format)
+
 ## [0.3.2] - 2025-11-03
 
 ### Fixed

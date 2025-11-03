@@ -1,5 +1,5 @@
 name: Kostal Battery Manager
-version: "0.3.2"
+version: "0.3.3"
 slug: kostal_battery_manager
 description: "Intelligente Batteriesteuerung für Kostal Plenticore Plus mit Tibber-Optimierung"
 url: "https://github.com/SvenSteuer/kostal-battery-manager"
