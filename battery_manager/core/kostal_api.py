@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-Kostal REST API Client - FIXED VERSION
+Kostal REST API Client - v0.1.2 FIXED SESSION HANDLING
 Portiert von batctl.py - Credits: Kilian Knoll
 
-Implementiert die komplexe Authentifizierung und Steuerung
-für Kostal Plenticore Plus Wechselrichter
+Verbesserungen:
+- Keine Session-Validierung die zu 403 führt
+- Session wird vertraut wenn sie existiert
+- Nur bei 401 Unauthorized neu authentifizieren
 """
 
 import requests
@@ -44,6 +46,7 @@ class KostalAPI:
         self.master_password = master_password
         self.session_id = None
         self.headers = None
+        self.authenticated = False
         
         # Session file path
         self.session_file = Path("/data/kostal_session.id")
@@ -74,7 +77,7 @@ class KostalAPI:
             u = base64.b64encode(u.encode('utf-8')).decode('utf-8')
             
             step1 = {
-                "username": "user",  # Use "user" for installer access
+                "username": "master",  # Use "master" for full access
                 "nonce": u
             }
             
@@ -104,7 +107,7 @@ class KostalAPI:
             c = hmac.new(r, "Server Key".encode('utf-8'), hashlib.sha256).digest()
             _ = hashlib.sha256(s).digest()
             
-            d = f"n=user,r={u},r={i},s={a},i={str(o)},c=biws,r={i}"
+            d = f"n=master,r={u},r={i},s={a},i={str(o)},c=biws,r={i}"
             g = hmac.new(_, d.encode('utf-8'), hashlib.sha256).digest()
             p = hmac.new(c, d.encode('utf-8'), hashlib.sha256).digest()
             f = bytes(a ^ b for (a, b) in zip(s, g))
@@ -165,6 +168,7 @@ class KostalAPI:
             try:
                 with open(self.session_file, 'w') as f:
                     f.write(self.session_id)
+                logger.debug(f"Session saved to {self.session_file}")
             except Exception as e:
                 logger.warning(f"Could not save session to file: {e}")
             
@@ -175,22 +179,9 @@ class KostalAPI:
                 'authorization': f"Session {self.session_id}"
             }
             
-            # Verify authentication
-            url = f"{self.base_url}/auth/me"
-            response = requests.get(url, headers=self.headers, timeout=10)
-            
-            if response.status_code != 200:
-                logger.error("Session verification failed")
-                return False
-            
-            response_data = response.json()
-            
-            if response_data.get('authenticated', False):
-                logger.info("✅ Kostal API authentication successful")
-                return True
-            else:
-                logger.error("❌ Kostal API authentication failed - not authenticated")
-                return False
+            self.authenticated = True
+            logger.info("✅ Kostal API authentication successful")
+            return True
                 
         except requests.exceptions.Timeout:
             logger.error("❌ Kostal API authentication timeout - check network connection")
@@ -220,42 +211,91 @@ class KostalAPI:
                 
             self.session_id = None
             self.headers = None
+            self.authenticated = False
             
         except Exception as e:
             logger.warning(f"Error during logout: {e}")
     
-    def _ensure_authenticated(self):
-        """Ensure we have a valid session, re-authenticate if needed"""
-        # Try to load existing session
-        if not self.headers and self.session_file.exists():
+    def _load_session(self):
+        """Load existing session from file"""
+        if self.session_file.exists():
             try:
                 with open(self.session_file, 'r') as f:
                     self.session_id = f.read().strip()
-                    self.headers = {
-                        'Content-type': 'application/json',
-                        'Accept': 'application/json',
-                        'authorization': f"Session {self.session_id}"
-                    }
-                    logger.info("Loaded existing Kostal session")
+                    if self.session_id:
+                        self.headers = {
+                            'Content-type': 'application/json',
+                            'Accept': 'application/json',
+                            'authorization': f"Session {self.session_id}"
+                        }
+                        logger.info("✅ Loaded existing Kostal session")
+                        return True
             except Exception as e:
                 logger.warning(f"Could not load session: {e}")
+        return False
+    
+    def _ensure_authenticated(self):
+        """
+        Ensure we have a valid session
         
-        # Verify session is still valid
+        IMPROVED: Trust existing session, only re-authenticate if no session exists
+        This avoids 403 errors from session validation attempts
+        """
+        # If we already have headers, trust them
         if self.headers:
-            try:
-                url = f"{self.base_url}/auth/me"
-                response = requests.get(url, headers=self.headers, timeout=5)
-                if response.status_code == 200:
-                    data = response.json()
-                    if data.get('authenticated', False):
-                        logger.debug("Existing session is still valid")
-                        return True
-            except Exception:
-                pass
+            logger.debug("Using existing session headers")
+            return True
         
-        # Need to re-authenticate
-        logger.info("Re-authenticating with Kostal API")
+        # Try to load session from file
+        if self._load_session():
+            logger.info("Using loaded session (no validation to avoid 403)")
+            return True
+        
+        # No session exists, need to authenticate
+        logger.info("No existing session found, authenticating...")
         return self.login()
+    
+    def _api_call_with_retry(self, method, url, **kwargs):
+        """
+        Make API call with automatic re-authentication on 401
+        
+        Args:
+            method: HTTP method ('get', 'post', 'put', etc.)
+            url: Full URL
+            **kwargs: Additional arguments for requests
+        
+        Returns:
+            Response object or None
+        """
+        if not self._ensure_authenticated():
+            logger.error("Cannot make API call - authentication failed")
+            return None
+        
+        try:
+            # Add headers
+            if 'headers' not in kwargs:
+                kwargs['headers'] = self.headers
+            
+            # Make request
+            response = getattr(requests, method)(url, **kwargs)
+            
+            # If 401 Unauthorized, try to re-authenticate once
+            if response.status_code == 401:
+                logger.warning("Got 401 Unauthorized, re-authenticating...")
+                self.headers = None  # Clear old headers
+                if self.login():
+                    # Retry with new session
+                    kwargs['headers'] = self.headers
+                    response = getattr(requests, method)(url, **kwargs)
+                else:
+                    logger.error("Re-authentication failed")
+                    return None
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"API call error: {e}")
+            return None
     
     def set_external_control(self, enabled):
         """
@@ -268,16 +308,18 @@ class KostalAPI:
             bool: True if successful
         """
         try:
-            if not self._ensure_authenticated():
-                logger.error("Authentication failed, cannot set external control")
-                return False
-            
             mode = "2" if enabled else "0"
             
             # Read current setting first
             url = f"{self.base_url}/settings/devices%3Alocal/Battery%3AExternControl"
-            response = requests.get(url, headers=self.headers, timeout=10)
-            logger.debug(f"Current ExternControl: {response.json()}")
+            response = self._api_call_with_retry('get', url, timeout=10)
+            
+            if not response:
+                logger.error("Failed to read current ExternControl setting")
+                return False
+            
+            if response.status_code == 200:
+                logger.debug(f"Current ExternControl: {response.json()}")
             
             # Prepare payload
             payload = [{
@@ -290,12 +332,11 @@ class KostalAPI:
             
             # Write new setting
             url = f"{self.base_url}/settings"
-            response = requests.put(
-                url,
-                json=payload,
-                headers=self.headers,
-                timeout=10
-            )
+            response = self._api_call_with_retry('put', url, json=payload, timeout=10)
+            
+            if not response:
+                logger.error("Failed to set ExternControl")
+                return False
             
             if response.status_code == 200:
                 control_mode = "external (Modbus)" if enabled else "internal"
@@ -307,6 +348,7 @@ class KostalAPI:
                 
         except Exception as e:
             logger.error(f"❌ Error setting external control: {e}")
+            logger.exception(e)
             return False
     
     def get_setting(self, setting_id):
@@ -320,19 +362,16 @@ class KostalAPI:
             dict: Setting data or None if failed
         """
         try:
-            if not self._ensure_authenticated():
-                return None
-            
             # URL encode the setting ID
             setting_id_encoded = setting_id.replace(":", "%3A")
             url = f"{self.base_url}/settings/devices%3Alocal/{setting_id_encoded}"
             
-            response = requests.get(url, headers=self.headers, timeout=10)
+            response = self._api_call_with_retry('get', url, timeout=10)
             
-            if response.status_code == 200:
+            if response and response.status_code == 200:
                 return response.json()
             else:
-                logger.error(f"Failed to get setting {setting_id}: {response.status_code}")
+                logger.error(f"Failed to get setting {setting_id}")
                 return None
                 
         except Exception as e:
@@ -359,7 +398,7 @@ class KostalAPI:
             # Correct: POST with JSON body
             response = requests.post(
                 url,
-                json={"username": "user", "nonce": u},
+                json={"username": "master", "nonce": u},
                 headers=headers,
                 timeout=5
             )
@@ -367,6 +406,10 @@ class KostalAPI:
             if response.status_code == 200:
                 logger.info("✅ Connection test successful - Kostal responds correctly")
                 return True
+            elif response.status_code == 403:
+                logger.warning("⚠️ Connection works but user is locked (too many failed attempts)")
+                logger.warning("   Wait 30 minutes or restart the inverter to unlock")
+                return False
             else:
                 logger.error(f"❌ Connection test failed: HTTP {response.status_code}")
                 return False
@@ -383,4 +426,5 @@ class KostalAPI:
     
     def __del__(self):
         """Cleanup on destruction"""
-        self.logout()
+        # Don't logout automatically - keep session alive
+        pass
