@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Kostal REST API Client
+Kostal REST API Client - FIXED VERSION
 Portiert von batctl.py - Credits: Kilian Knoll
 
 Implementiert die komplexe Authentifizierung und Steuerung
@@ -36,8 +36,8 @@ class KostalAPI:
         
         Args:
             inverter_ip: IP-Adresse des Wechselrichters
-            installer_password: Installer-Passwort
-            master_password: Master-Passwort
+            installer_password: Installer-Passwort (Master Key im Kostal)
+            master_password: Master-Passwort (Service Code - MIT : am Anfang!)
         """
         self.base_url = f"http://{inverter_ip}/api/v1"
         self.installer_password = installer_password
@@ -74,15 +74,21 @@ class KostalAPI:
             u = base64.b64encode(u.encode('utf-8')).decode('utf-8')
             
             step1 = {
-                "username": "master",  # Always use master for full access
+                "username": "user",  # Use "user" for installer access
                 "nonce": u
             }
             
             url = f"{self.base_url}/auth/start"
             headers = {'Content-type': 'application/json', 'Accept': 'application/json'}
-            response = requests.post(url, json=step1, headers=headers, timeout=10)
-            response_data = response.json()
             
+            logger.debug(f"Auth start request to {url}")
+            response = requests.post(url, json=step1, headers=headers, timeout=10)
+            
+            if response.status_code != 200:
+                logger.error(f"Auth start failed: {response.status_code} - {response.text}")
+                return False
+            
+            response_data = response.json()
             logger.debug(f"Auth start response: {response_data}")
             
             # Extract authentication parameters
@@ -98,7 +104,7 @@ class KostalAPI:
             c = hmac.new(r, "Server Key".encode('utf-8'), hashlib.sha256).digest()
             _ = hashlib.sha256(s).digest()
             
-            d = f"n=master,r={u},r={i},s={a},i={str(o)},c=biws,r={i}"
+            d = f"n=user,r={u},r={i},s={a},i={str(o)},c=biws,r={i}"
             g = hmac.new(_, d.encode('utf-8'), hashlib.sha256).digest()
             p = hmac.new(c, d.encode('utf-8'), hashlib.sha256).digest()
             f = bytes(a ^ b for (a, b) in zip(s, g))
@@ -112,9 +118,14 @@ class KostalAPI:
             
             # Step 3: Finish authentication
             url = f"{self.base_url}/auth/finish"
+            logger.debug("Sending auth finish request")
             response = requests.post(url, json=step2, headers=headers, timeout=10)
-            response_data = response.json()
             
+            if response.status_code != 200:
+                logger.error(f"Auth finish failed: {response.status_code} - {response.text}")
+                return False
+            
+            response_data = response.json()
             token = response_data['token']
             
             # Step 4: Create session with master password
@@ -140,14 +151,22 @@ class KostalAPI:
             
             # Step 5: Create session
             url = f"{self.base_url}/auth/create_session"
+            logger.debug("Creating session")
             response = requests.post(url, json=step3, headers=headers, timeout=10)
-            response_data = response.json()
             
+            if response.status_code != 200:
+                logger.error(f"Session creation failed: {response.status_code} - {response.text}")
+                return False
+            
+            response_data = response.json()
             self.session_id = response_data['sessionId']
             
             # Save session ID to file
-            with open(self.session_file, 'w') as f:
-                f.write(self.session_id)
+            try:
+                with open(self.session_file, 'w') as f:
+                    f.write(self.session_id)
+            except Exception as e:
+                logger.warning(f"Could not save session to file: {e}")
             
             # Create headers for subsequent requests
             self.headers = {
@@ -159,17 +178,32 @@ class KostalAPI:
             # Verify authentication
             url = f"{self.base_url}/auth/me"
             response = requests.get(url, headers=self.headers, timeout=10)
+            
+            if response.status_code != 200:
+                logger.error("Session verification failed")
+                return False
+            
             response_data = response.json()
             
             if response_data.get('authenticated', False):
-                logger.info("Kostal API authentication successful")
+                logger.info("✅ Kostal API authentication successful")
                 return True
             else:
-                logger.error("Kostal API authentication failed")
+                logger.error("❌ Kostal API authentication failed - not authenticated")
                 return False
                 
+        except requests.exceptions.Timeout:
+            logger.error("❌ Kostal API authentication timeout - check network connection")
+            return False
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"❌ Kostal API connection error: {e}")
+            return False
+        except KeyError as e:
+            logger.error(f"❌ Kostal API response missing key: {e}")
+            return False
         except Exception as e:
-            logger.error(f"Kostal API authentication error: {e}")
+            logger.error(f"❌ Kostal API authentication error: {e}")
+            logger.exception(e)
             return False
     
     def logout(self):
@@ -214,11 +248,13 @@ class KostalAPI:
                 if response.status_code == 200:
                     data = response.json()
                     if data.get('authenticated', False):
+                        logger.debug("Existing session is still valid")
                         return True
             except Exception:
                 pass
         
         # Need to re-authenticate
+        logger.info("Re-authenticating with Kostal API")
         return self.login()
     
     def set_external_control(self, enabled):
@@ -263,14 +299,14 @@ class KostalAPI:
             
             if response.status_code == 200:
                 control_mode = "external (Modbus)" if enabled else "internal"
-                logger.info(f"Battery control set to: {control_mode}")
+                logger.info(f"✅ Battery control set to: {control_mode}")
                 return True
             else:
-                logger.error(f"Failed to set battery control: {response.status_code} - {response.text}")
+                logger.error(f"❌ Failed to set battery control: {response.status_code} - {response.text}")
                 return False
                 
         except Exception as e:
-            logger.error(f"Error setting external control: {e}")
+            logger.error(f"❌ Error setting external control: {e}")
             return False
     
     def get_setting(self, setting_id):
@@ -304,15 +340,45 @@ class KostalAPI:
             return None
     
     def test_connection(self):
-        """Test connection to inverter"""
+        """
+        Test connection to inverter - FIXED VERSION
+        
+        Returns:
+            bool: True if successful
+        """
         try:
-            response = requests.get(
-                f"{self.base_url}/auth/start",
+            logger.info("Testing connection to Kostal inverter...")
+            
+            # Test with a simple auth/start request (POST!)
+            u = self._random_string(12)
+            u = base64.b64encode(u.encode('utf-8')).decode('utf-8')
+            
+            url = f"{self.base_url}/auth/start"
+            headers = {'Content-Type': 'application/json', 'Accept': 'application/json'}
+            
+            # Correct: POST with JSON body
+            response = requests.post(
+                url,
+                json={"username": "user", "nonce": u},
+                headers=headers,
                 timeout=5
             )
-            return response.status_code == 200
+            
+            if response.status_code == 200:
+                logger.info("✅ Connection test successful - Kostal responds correctly")
+                return True
+            else:
+                logger.error(f"❌ Connection test failed: HTTP {response.status_code}")
+                return False
+                
+        except requests.exceptions.Timeout:
+            logger.error("❌ Connection test timeout")
+            return False
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"❌ Connection test failed: {e}")
+            return False
         except Exception as e:
-            logger.error(f"Connection test failed: {e}")
+            logger.error(f"❌ Connection test error: {e}")
             return False
     
     def __del__(self):

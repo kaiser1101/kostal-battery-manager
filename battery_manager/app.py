@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Kostal Battery Manager - Main Flask Application
+Kostal Battery Manager - Main Flask Application - FIXED VERSION
 """
 
 import os
@@ -9,6 +9,7 @@ import logging
 import threading
 from datetime import datetime
 from flask import Flask, render_template, jsonify, request, redirect, url_for
+from flask_cors import CORS
 
 # Setup logging
 log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
@@ -18,8 +19,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize Flask app
-app = Flask(__name__)
+# Initialize Flask app with correct paths
+app = Flask(__name__,
+            static_folder='static',
+            static_url_path='/static',
+            template_folder='templates')
+
+# Enable CORS for Ingress
+CORS(app)
+
 app.config['SECRET_KEY'] = os.urandom(24)
 
 # Configuration
@@ -38,7 +46,7 @@ def load_config():
     except Exception as e:
         logger.error(f"Error loading config: {e}")
     
-    # Default configuration for development
+    # Default configuration
     return {
         'inverter_ip': '192.168.80.76',
         'inverter_port': 1502,
@@ -104,11 +112,20 @@ def add_log(level, message):
     else:
         logger.info(message)
 
-# Import components (will be implemented)
+# Import components
 try:
-    from battery_manager.core.kostal_api import KostalAPI
-    from battery_manager.core.modbus_client import ModbusClient
-    from battery_manager.core.ha_client import HomeAssistantClient
+    # Try relative import first
+    try:
+        from .core.kostal_api import KostalAPI
+        from .core.modbus_client import ModbusClient
+        from .core.ha_client import HomeAssistantClient
+    except ImportError:
+        # Fall back to absolute import
+        import sys
+        sys.path.insert(0, os.path.dirname(__file__))
+        from core.kostal_api import KostalAPI
+        from core.modbus_client import ModbusClient
+        from core.ha_client import HomeAssistantClient
     
     # Initialize components
     kostal_api = KostalAPI(
@@ -129,6 +146,12 @@ except ImportError as e:
     modbus_client = None
     ha_client = None
     add_log('WARNING', 'Running in development mode - components not available')
+except Exception as e:
+    logger.error(f"Error initializing components: {e}")
+    kostal_api = None
+    modbus_client = None
+    ha_client = None
+    add_log('ERROR', f'Failed to initialize components: {str(e)}')
 
 # ==============================================================================
 # Web Routes
@@ -162,7 +185,7 @@ def api_status():
     if ha_client:
         try:
             soc = ha_client.get_state(config.get('battery_soc_sensor', 'sensor.zwh8_8500_battery_soc'))
-            if soc:
+            if soc and soc not in ['unknown', 'unavailable']:
                 app_state['battery']['soc'] = float(soc)
         except Exception as e:
             logger.debug(f"Could not read battery SOC: {e}")
@@ -252,13 +275,14 @@ def api_control():
         elif action == 'test_connection':
             # Test connection to inverter
             if kostal_api:
+                logger.info("Testing Kostal connection...")
                 result = kostal_api.test_connection()
                 if result:
                     app_state['inverter']['connected'] = True
-                    add_log('INFO', 'Connection test successful')
+                    add_log('INFO', '✅ Connection test successful')
                 else:
                     app_state['inverter']['connected'] = False
-                    add_log('ERROR', 'Connection test failed')
+                    add_log('ERROR', '❌ Connection test failed')
             else:
                 add_log('WARNING', 'Components not available - cannot test connection')
         
@@ -277,6 +301,7 @@ def api_control():
         
     except Exception as e:
         add_log('ERROR', f'Error executing action {action}: {str(e)}')
+        logger.exception(e)
         return jsonify({
             'status': 'error',
             'message': str(e)
