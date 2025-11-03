@@ -130,7 +130,7 @@ let refreshInterval = setInterval(updateStatus, 10000);
 updateStatus();
 
 function updateStatus() {
-    fetch('/api/status')
+    fetch('api/status')
         .then(response => response.json())
         .then(data => {
             // Update connection status
@@ -177,7 +177,7 @@ function startCharging() {
     if (confirm(`Batterie mit ${power}W laden?`)) {
         showLoading('Starte Ladung...');
         
-        fetch('/api/control', {
+        fetch('api/control', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({action: 'start_charging', power: parseInt(power)})
@@ -200,7 +200,7 @@ function stopCharging() {
     if (confirm('Ladung stoppen und zurück zur internen Steuerung?')) {
         showLoading('Stoppe Ladung...');
         
-        fetch('/api/control', {
+        fetch('api/control', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({action: 'stop_charging'})
@@ -222,7 +222,7 @@ function stopCharging() {
 function autoMode() {
     showLoading('Aktiviere Automatik...');
     
-    fetch('/api/control', {
+    fetch('api/control', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({action: 'auto_mode'})
@@ -243,7 +243,7 @@ function autoMode() {
 function testConnection() {
     showLoading('Teste Verbindung...');
     
-    fetch('/api/control', {
+    fetch('api/control', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({action: 'test_connection'})
