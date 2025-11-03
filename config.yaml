@@ -1,5 +1,5 @@
 name: Kostal Battery Manager
-version: "0.3.3"
+version: "0.3.4"
 slug: kostal_battery_manager
 description: "Intelligente Batteriesteuerung für Kostal Plenticore Plus mit Tibber-Optimierung"
 url: "https://github.com/SvenSteuer/kostal-battery-manager"
@@ -58,8 +58,6 @@ options:
   tibber_price_threshold_1h: 8  # Prozent: Preisanstieg zur vorherigen Stunde
   tibber_price_threshold_3h: 8  # Prozent: 3h Block Vergleich
   charge_duration_per_10_percent: 18  # Minuten pro 10% SOC
-  min_soc: 20  # Sicherheits-Minimum SOC
-  max_soc: 95  # Ziel-SOC für Ladung
   # OPTIONAL: input_datetime Helfer für HA-Integration
   # Diese müssen in Home Assistant erstellt werden:
   # In configuration.yaml:
@@ -121,8 +119,6 @@ schema:
   tibber_price_threshold_1h: int(1,50)
   tibber_price_threshold_3h: int(1,50)
   charge_duration_per_10_percent: int(5,60)
-  min_soc: int(5,50)
-  max_soc: int(50,100)
   input_datetime_planned_charge_end: str?
   input_datetime_planned_charge_start: str?
 

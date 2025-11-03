@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.4] - 2025-11-03
+
+### Fixed
+- Removed redundant `min_soc` and `max_soc` parameters that were conflicting with existing parameters
+- Now consistently uses `auto_safety_soc` as safety minimum (default 20%)
+- Now consistently uses `auto_charge_below_soc` as target SOC (default 95%)
+
+### Removed
+- Config parameters `min_soc` and `max_soc` (use existing `auto_safety_soc` and `auto_charge_below_soc` instead)
+
+### Changed
+- Charging plan calculation and controller now use the same SOC parameters as other automation logic
+- Better consistency across the entire application
+
 ## [0.3.3] - 2025-11-03
 
 ### Fixed
