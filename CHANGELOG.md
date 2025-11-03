@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.3.5] - 2025-11-03
+
+### Added
+- Comprehensive CONFIGURATION.md documentation explaining all parameters
+- Detailed inline comments for all automation parameters
+- Better explanation of `auto_charge_below_soc` (means "charge UP TO this SOC", not "charge only when below")
+
+### Changed
+- `battery_soc_sensor` is now visible and required in configuration (was hidden/optional before)
+- Improved parameter descriptions with German explanations
+- Added section headers in config.yaml for better organization
+
+### Documentation
+- Created detailed CONFIGURATION.md with:
+  - Explanation of all SOC parameters and their meaning
+  - Tibber smart charging parameter details
+  - Example scenarios and calculations
+  - Troubleshooting common issues
+- Clarified that `auto_charge_below_soc` is the TARGET SOC (charge UP TO), not a condition
+- Explained `auto_safety_soc` as immediate charging trigger (charge WHEN BELOW)
+
 ## [0.3.4] - 2025-11-03
 
 ### Fixed
