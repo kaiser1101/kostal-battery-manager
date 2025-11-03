@@ -378,66 +378,6 @@ class KostalAPI:
             logger.error(f"Error getting setting: {e}")
             return None
 
-    def set_battery_soc_limits(self, min_soc, max_soc):
-        """
-        Set battery SOC limits in inverter (v0.2.0)
-
-        Args:
-            min_soc: Minimum SOC percentage (5-95)
-            max_soc: Maximum SOC percentage (10-100)
-
-        Returns:
-            bool: True if successful
-        """
-        try:
-            logger.info(f"Setting battery SOC limits: Min={min_soc}%, Max={max_soc}%")
-
-            # Validate parameters
-            if not (5 <= min_soc <= 95):
-                logger.error(f"Invalid min_soc: {min_soc} (must be 5-95)")
-                return False
-            if not (10 <= max_soc <= 100):
-                logger.error(f"Invalid max_soc: {max_soc} (must be 10-100)")
-                return False
-            if min_soc >= max_soc:
-                logger.error(f"min_soc ({min_soc}) must be less than max_soc ({max_soc})")
-                return False
-
-            # Prepare payload for both settings
-            payload = [{
-                "moduleid": "devices:local",
-                "settings": [
-                    {
-                        "id": "Battery:MinSoc",
-                        "value": str(min_soc)
-                    },
-                    {
-                        "id": "Battery:Strategy:MaxSoc",
-                        "value": str(max_soc)
-                    }
-                ]
-            }]
-
-            # Write settings
-            url = f"{self.base_url}/settings"
-            response = self._api_call_with_retry('put', url, json=payload, timeout=10)
-
-            if not response:
-                logger.error("Failed to set SOC limits")
-                return False
-
-            if response.status_code == 200:
-                logger.info(f"✅ Battery SOC limits set successfully: {min_soc}% - {max_soc}%")
-                return True
-            else:
-                logger.error(f"❌ Failed to set SOC limits: {response.status_code} - {response.text}")
-                return False
-
-        except Exception as e:
-            logger.error(f"❌ Error setting SOC limits: {e}")
-            logger.exception(e)
-            return False
-    
     def test_connection(self):
         """
         Test connection to inverter - FIXED VERSION

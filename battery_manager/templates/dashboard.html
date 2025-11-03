@@ -99,9 +99,6 @@
                    oninput="document.getElementById('power-display').textContent = this.value"
                    onchange="adjustPowerIfCharging(this.value)">
         </div>
-        <button onclick="syncSocLimits()" class="btn btn-warning" style="margin-top: 1rem;">
-            🔄 SOC Limits synchronisieren
-        </button>
     </div>
 
     <!-- Forecast -->
@@ -179,8 +176,8 @@ function showNotification(type, message, duration = 3000) {
     }, duration);
 }
 
-// Auto-refresh status every 10 seconds
-let refreshInterval = setInterval(updateStatus, 10000);
+// Auto-refresh status every 2 seconds (v0.2.1)
+let refreshInterval = setInterval(updateStatus, 2000);
 updateStatus();
 
 function updateStatus() {
@@ -342,32 +339,6 @@ function adjustPowerIfCharging(power) {
             }
         })
         .catch(error => console.error('Error checking status:', error));
-}
-
-// v0.2.0: Synchronize SOC limits to inverter
-function syncSocLimits() {
-    if (confirm('SOC Limits zum Wechselrichter synchronisieren?')) {
-        showLoading('Synchronisiere SOC Limits...');
-
-        fetch('api/sync_soc', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'}
-        })
-        .then(response => response.json())
-        .then(data => {
-            hideLoading();
-            if (data.status === 'ok') {
-                showNotification('success', data.message);
-            } else {
-                showNotification('error', data.message || 'Fehler beim Synchronisieren');
-            }
-        })
-        .catch(error => {
-            hideLoading();
-            showNotification('error', 'Fehler beim Synchronisieren der SOC Limits');
-            console.error(error);
-        });
-    }
 }
 
 // Cleanup on page unload

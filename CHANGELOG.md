@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.1] - 2025-11-03
+
+### Changed
+- Update interval reduced from 10s to 2s for more responsive UI
+- Improved Tibber price parsing to correctly show current price from hourly price array
+- Added support for dual-roof PV systems (separate sensors for each roof orientation)
+- PV forecast now sums production from both roof orientations
+- Price level strings now use English format (CHEAP, EXPENSIVE, etc.)
+
+### Removed
+- SOC synchronization feature removed (min/max SOC should be configured directly in inverter)
+- Removed `/api/sync_soc` endpoint
+- Removed `set_battery_soc_limits()` method from kostal_api
+- Removed SOC sync button from dashboard
+
+### Fixed
+- Current electricity price now correctly displayed from Tibber sensor attributes
+- PV forecast calculation for systems with multiple roof orientations
+- Timezone handling for Tibber price matching
+
+### Technical
+- Added `get_state_with_attributes()` method to ha_client for full entity data retrieval
+- New PV sensor configuration: `pv_power_now_roof1/2`, `pv_remaining_today_roof1/2`, etc.
+- Removed legacy `pv_forecast_sensor` and `consumption_sensor` options
+
 ## [0.2.0] - 2025-11-03
 
 ### Added
