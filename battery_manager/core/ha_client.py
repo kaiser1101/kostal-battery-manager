@@ -89,36 +89,64 @@ class HomeAssistantClient:
     def call_service(self, domain, service, entity_id=None, data=None):
         """
         Call a Home Assistant service
-        
+
         Args:
             domain: Service domain (e.g., 'light', 'switch')
             service: Service name (e.g., 'turn_on', 'turn_off')
             entity_id: Entity ID (optional)
             data: Additional service data (optional)
-        
+
         Returns:
             bool: True if successful
         """
         if not self.token:
             logger.debug("Cannot call service - no token")
             return False
-        
+
         try:
             url = f"{self.api_url}/api/services/{domain}/{service}"
-            
+
             payload = data or {}
             if entity_id:
                 payload['entity_id'] = entity_id
-            
+
             response = requests.post(
                 url,
                 json=payload,
                 headers=self.headers,
                 timeout=10
             )
-            
+
             return response.status_code == 200
-                
+
         except Exception as e:
             logger.error(f"Error calling service {domain}.{service}: {e}")
             return False
+
+    def get_state_with_attributes(self, entity_id):
+        """
+        Get entity state with all attributes (v0.2.1)
+
+        Args:
+            entity_id: Entity ID
+
+        Returns:
+            dict: Full entity data including state and attributes, or None if failed
+        """
+        if not self.token:
+            logger.debug(f"Cannot get state with attributes for {entity_id} - no token")
+            return None
+
+        try:
+            url = f"{self.api_url}/api/states/{entity_id}"
+            response = requests.get(url, headers=self.headers, timeout=10)
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.warning(f"Failed to get state with attributes for {entity_id}: {response.status_code}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error getting state with attributes for {entity_id}: {e}")
+            return None

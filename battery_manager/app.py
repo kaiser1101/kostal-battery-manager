@@ -61,14 +61,23 @@ def load_config():
         'enable_tibber_optimization': True,
         'price_threshold': 0.85,
         'battery_soc_sensor': 'sensor.zwh8_8500_battery_soc',
-        # v0.2.0 - New sensor options
+        # v0.2.0 - Battery sensor options
         'battery_power_sensor': 'sensor.zwh8_8500_battery_power',
         'battery_voltage_sensor': '',
         'tibber_price_sensor': 'sensor.tibber_prices',
         'tibber_price_level_sensor': 'sensor.tibber_price_level_deutsch',
-        'pv_forecast_sensor': 'sensor.solcast_pv_forecast_today',
-        'consumption_sensor': 'sensor.verbleibende_solarerzeugung_heute',
-        'auto_optimization_enabled': True
+        'auto_optimization_enabled': True,
+        # v0.2.1 - PV Production Sensors (Dual Roof)
+        'pv_power_now_roof1': 'sensor.power_production_now_roof1',
+        'pv_power_now_roof2': 'sensor.power_production_now_roof2',
+        'pv_remaining_today_roof1': 'sensor.energy_production_today_remaining_roof1',
+        'pv_remaining_today_roof2': 'sensor.energy_production_today_remaining_roof2',
+        'pv_production_today_roof1': 'sensor.energy_production_today_roof1',
+        'pv_production_today_roof2': 'sensor.energy_production_today_roof2',
+        'pv_production_tomorrow_roof1': 'sensor.energy_production_tomorrow_roof1',
+        'pv_production_tomorrow_roof2': 'sensor.energy_production_tomorrow_roof2',
+        'pv_next_hour_roof1': 'sensor.energy_next_hour_roof1',
+        'pv_next_hour_roof2': 'sensor.energy_next_hour_roof2'
     }
 
 # Load configuration
@@ -218,6 +227,72 @@ def api_status():
         except Exception as e:
             logger.debug(f"Could not read battery voltage: {e}")
 
+        # Read current Tibber price (v0.2.1)
+        try:
+            from datetime import datetime as dt
+            import pytz
+
+            tibber_sensor = config.get('tibber_price_sensor', 'sensor.tibber_prices')
+            prices_data = ha_client.get_state_with_attributes(tibber_sensor)
+
+            if prices_data and 'attributes' in prices_data:
+                today_prices = prices_data['attributes'].get('today', [])
+
+                # Find current price based on time
+                now = dt.now()
+                current_hour = now.hour
+
+                for price_entry in today_prices:
+                    # Parse startsAt time
+                    starts_at_str = price_entry.get('startsAt', '')
+                    if starts_at_str:
+                        # Remove Z and parse
+                        starts_at = dt.fromisoformat(starts_at_str.replace('Z', '+00:00'))
+                        # Convert to local time
+                        local_tz = pytz.timezone('Europe/Berlin')
+                        starts_at_local = starts_at.astimezone(local_tz)
+
+                        if starts_at_local.hour == current_hour:
+                            app_state['price']['current'] = float(price_entry.get('total', 0))
+                            app_state['price']['level'] = price_entry.get('level', 'NORMAL')
+                            break
+
+                # Calculate average price for today
+                if today_prices:
+                    avg = sum(p.get('total', 0) for p in today_prices) / len(today_prices)
+                    app_state['price']['average'] = float(avg)
+        except Exception as e:
+            logger.debug(f"Could not read Tibber price: {e}")
+
+        # Read PV forecast data (v0.2.1)
+        try:
+            # Current production (sum of both roofs)
+            pv_power_now = 0
+            for roof in ['roof1', 'roof2']:
+                sensor = config.get(f'pv_power_now_{roof}')
+                if sensor:
+                    power = ha_client.get_state(sensor)
+                    if power and power not in ['unknown', 'unavailable']:
+                        pv_power_now += float(power)
+
+            # Remaining production today (sum of both roofs)
+            pv_remaining_today = 0
+            for roof in ['roof1', 'roof2']:
+                sensor = config.get(f'pv_remaining_today_{roof}')
+                if sensor:
+                    remaining = ha_client.get_state(sensor)
+                    if remaining and remaining not in ['unknown', 'unavailable']:
+                        pv_remaining_today += float(remaining)
+
+            # Update app state
+            app_state['forecast']['today'] = pv_remaining_today
+            app_state['pv'] = {
+                'power_now': pv_power_now,
+                'remaining_today': pv_remaining_today
+            }
+        except Exception as e:
+            logger.debug(f"Could not read PV data: {e}")
+
     return jsonify({
         'status': 'ok',
         'timestamp': app_state['last_update'],
@@ -225,7 +300,8 @@ def api_status():
         'inverter': app_state['inverter'],
         'battery': app_state['battery'],
         'price': app_state['price'],
-        'forecast': app_state['forecast']
+        'forecast': app_state['forecast'],
+        'pv': app_state.get('pv', {'power_now': 0, 'remaining_today': 0})
     })
 
 @app.route('/api/config', methods=['GET', 'POST'])
@@ -342,42 +418,6 @@ def api_logs():
         'logs': app_state['logs']
     })
 
-@app.route('/api/sync_soc', methods=['POST'])
-def api_sync_soc():
-    """Synchronize SOC limits to inverter (v0.2.0)"""
-    try:
-        min_soc = config['min_soc']
-        max_soc = config['max_soc']
-
-        if not kostal_api:
-            add_log('ERROR', 'Kostal API not available')
-            return jsonify({
-                'status': 'error',
-                'message': 'Kostal API not available'
-            }), 500
-
-        success = kostal_api.set_battery_soc_limits(min_soc, max_soc)
-
-        if success:
-            add_log('INFO', f'SOC limits synchronized to inverter: {min_soc}% - {max_soc}%')
-            return jsonify({
-                'status': 'ok',
-                'message': f'SOC limits synchronized: {min_soc}% - {max_soc}%'
-            })
-        else:
-            add_log('ERROR', 'Failed to synchronize SOC limits')
-            return jsonify({
-                'status': 'error',
-                'message': 'Failed to synchronize SOC limits'
-            }), 500
-
-    except Exception as e:
-        add_log('ERROR', f'Error synchronizing SOC limits: {str(e)}')
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
-
 @app.route('/api/adjust_power', methods=['POST'])
 def api_adjust_power():
     """Adjust charging power during active charging (v0.2.0)"""
@@ -447,7 +487,7 @@ def controller_loop():
     while True:
         try:
             if app_state['controller_running'] and config.get('auto_optimization_enabled', True):
-                # Auto-optimization logic (v0.2.0)
+                # Auto-optimization logic (v0.2.1)
                 if ha_client and kostal_api and modbus_client:
                     try:
                         # Get current data from Home Assistant
@@ -457,9 +497,15 @@ def controller_loop():
                         current_soc = float(ha_client.get_state(
                             config.get('battery_soc_sensor', 'sensor.zwh8_8500_battery_soc')
                         ) or 0)
-                        pv_forecast = float(ha_client.get_state(
-                            config.get('pv_forecast_sensor')
-                        ) or 0)
+
+                        # Get PV remaining forecast (sum of both roofs) - v0.2.1
+                        pv_remaining = 0
+                        for roof in ['roof1', 'roof2']:
+                            sensor = config.get(f'pv_remaining_today_{roof}')
+                            if sensor:
+                                remaining = ha_client.get_state(sensor)
+                                if remaining and remaining not in ['unknown', 'unavailable']:
+                                    pv_remaining += float(remaining)
 
                         # Update app state
                         if current_price_level:
@@ -469,13 +515,13 @@ def controller_loop():
                         should_charge = False
 
                         # Rule 1: Very cheap prices and low SOC
-                        if current_price_level in ['sehr günstig', 'günstig'] and \
+                        if current_price_level in ['CHEAP', 'VERY_CHEAP'] and \
                            current_soc < config.get('max_soc', 95):
-                            # Only charge if low PV forecast
-                            if pv_forecast < 5:  # Less than 5 kWh expected
+                            # Only charge if low PV forecast (less than 5 kWh expected)
+                            if pv_remaining < 5:
                                 should_charge = True
                                 logger.debug(f"Rule 1: Cheap price ({current_price_level}), " +
-                                           f"low PV forecast ({pv_forecast} kWh)")
+                                           f"low PV remaining ({pv_remaining} kWh)")
 
                         # Rule 2: SOC below minimum (safety)
                         if current_soc < config.get('min_soc', 20):
@@ -483,7 +529,7 @@ def controller_loop():
                             logger.debug(f"Rule 2: SOC {current_soc}% below minimum")
 
                         # Rule 3: Expensive prices - don't charge
-                        if current_price_level in ['teuer', 'sehr teuer']:
+                        if current_price_level in ['EXPENSIVE', 'VERY_EXPENSIVE']:
                             should_charge = False
                             logger.debug(f"Rule 3: Expensive price ({current_price_level}), " +
                                        "not charging")
