@@ -1,5 +1,5 @@
 name: Kostal Battery Manager
-version: "0.3.0"
+version: "0.3.1"
 slug: kostal_battery_manager
 description: "Intelligente Batteriesteuerung für Kostal Plenticore Plus mit Tibber-Optimierung"
 url: "https://github.com/SvenSteuer/kostal-battery-manager"
@@ -55,11 +55,24 @@ options:
   pv_next_hour_roof1: "sensor.energy_next_hour_roof1"
   pv_next_hour_roof2: "sensor.energy_next_hour_roof2"
   # v0.3.0 - Tibber Smart Charging
-  tibber_price_threshold_1h: 8
-  tibber_price_threshold_3h: 8
-  charge_duration_per_10_percent: 18
-  min_soc: 20
-  max_soc: 95
+  tibber_price_threshold_1h: 8  # Prozent: Preisanstieg zur vorherigen Stunde
+  tibber_price_threshold_3h: 8  # Prozent: 3h Block Vergleich
+  charge_duration_per_10_percent: 18  # Minuten pro 10% SOC
+  min_soc: 20  # Sicherheits-Minimum SOC
+  max_soc: 95  # Ziel-SOC für Ladung
+  # OPTIONAL: input_datetime Helfer für HA-Integration
+  # Diese müssen in Home Assistant erstellt werden:
+  # In configuration.yaml:
+  #   input_datetime:
+  #     tibber_geplantes_ladeende:
+  #       name: "Tibber Geplantes Ladeende"
+  #       has_date: true
+  #       has_time: true
+  #     tibber_geplanter_ladebeginn:
+  #       name: "Tibber Geplanter Ladebeginn"
+  #       has_date: true
+  #       has_time: true
+  # Dann werden diese automatisch mit den berechneten Zeiten aktualisiert
   input_datetime_planned_charge_end: "input_datetime.tibber_geplantes_ladeende"
   input_datetime_planned_charge_start: "input_datetime.tibber_geplanter_ladebeginn"
 

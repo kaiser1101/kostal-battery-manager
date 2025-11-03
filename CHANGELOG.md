@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.1] - 2025-11-03
+
+### Changed
+- Charging plan calculation now runs immediately on startup (not after 5 minutes)
+- Improved documentation for `input_datetime` helpers in config.yaml
+
+### Documentation
+- Added detailed explanation of optional Home Assistant `input_datetime` integration
+- Explained that input_datetime helpers must be created manually in HA configuration.yaml
+- Added example YAML configuration for creating the helpers
+- Clarified that input_datetime integration is optional and addon works without it
+
 ## [0.3.0] - 2025-11-03
 
 ### Added
