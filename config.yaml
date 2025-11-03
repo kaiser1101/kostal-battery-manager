@@ -1,5 +1,5 @@
 name: Kostal Battery Manager
-version: "0.3.4"
+version: "0.3.5"
 slug: kostal_battery_manager
 description: "Intelligente Batteriesteuerung für Kostal Plenticore Plus mit Tibber-Optimierung"
 url: "https://github.com/SvenSteuer/kostal-battery-manager"
@@ -24,6 +24,9 @@ privileged:
   - SYS_RAWIO
 
 options:
+  # ============================================================================
+  # Kostal Inverter Connection
+  # ============================================================================
   inverter_ip: "192.168.80.76"
   inverter_port: 1502
   installer_password: ""
@@ -34,15 +37,17 @@ options:
   control_interval: 30
   enable_tibber_optimization: true
   price_threshold: 0.85
+  # Battery SOC Sensor (WICHTIG für Ladesteuerung!)
+  battery_soc_sensor: "sensor.zwh8_8500_battery_soc"
   battery_power_sensor: "sensor.zwh8_8500_battery_power"
   battery_voltage_sensor: ""
   tibber_price_sensor: "sensor.tibber_prices"
   tibber_price_level_sensor: "sensor.tibber_price_level_deutsch"
   auto_optimization_enabled: true
   # v0.2.5 - Automation Parameters
-  auto_pv_threshold: 5.0
-  auto_charge_below_soc: 95
-  auto_safety_soc: 20
+  auto_pv_threshold: 5.0  # PV-Schwelle: Lade nur aus Netz wenn weniger PV erwartet (kWh)
+  auto_charge_below_soc: 95  # Ziel-SOC: Lade BIS zu diesem SOC-Wert (%)
+  auto_safety_soc: 20  # Sicherheits-SOC: Lade SOFORT wenn SOC unter diesem Wert fällt (%)
   # PV Production Sensors (v0.2.1 - beide Dachausrichtungen)
   pv_power_now_roof1: "sensor.power_production_now_roof1"
   pv_power_now_roof2: "sensor.power_production_now_roof2"
@@ -88,10 +93,8 @@ schema:
   enable_tibber_optimization: bool
   price_threshold: float(0.5,1.0)
 
-  # Battery SOC Sensor
-  battery_soc_sensor: str?
-
-  # v0.2.0 - Battery Sensors
+  # Battery Sensors (v0.2.0)
+  battery_soc_sensor: str
   battery_power_sensor: str?
   battery_voltage_sensor: str?
   tibber_price_sensor: str?
