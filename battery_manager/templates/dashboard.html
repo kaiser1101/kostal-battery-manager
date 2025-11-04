@@ -2,16 +2,6 @@
 
 {% block title %}Dashboard - Kostal Battery Manager{% endblock %}
 
-{% block head %}
-<script>
-    // INGRESS FIX: Get base path from Flask for correct static file loading
-    const ingressPath = '/api/hassio_ingress/1ytBWj2lv6Xc0Uy7veOWxrVwNgRR09z7NsoXmLVe9tM';
-    console.log('Using hardcoded ingress path:', ingressPath);
-</script>
-<link rel="stylesheet" href="/api/hassio_ingress/1ytBWj2lv6Xc0Uy7veOWxrVwNgRR09z7NsoXmLVe9tM/static/css/style.css">
-<link rel="icon" type="image/png" href="/api/hassio_ingress/1ytBWj2lv6Xc0Uy7veOWxrVwNgRR09z7NsoXmLVe9tM/static/img/icon.png">
-{% endblock %}
-
 {% block content %}
 <div class="dashboard">
     <!-- Status Overview -->
