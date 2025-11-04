@@ -884,6 +884,11 @@ def controller_loop():
                             consumption = ha_client.get_state(consumption_sensor)
                             if consumption and consumption not in ['unknown', 'unavailable']:
                                 consumption_kwh = float(consumption)
+
+                                # Warn user if negative value detected (Kostal Smart Meter bug)
+                                if consumption_kwh < 0:
+                                    add_log('WARNING', f'⚠️ Negativer Verbrauchswert vom Sensor: {consumption_kwh} kWh (Kostal Smart Meter Bug - Wert ignoriert)')
+
                                 consumption_learner.record_consumption(now, consumption_kwh)
                                 logger.debug(f"Recorded consumption: {consumption_kwh} kWh at {now.strftime('%H:%M')}")
                                 last_consumption_recording = now

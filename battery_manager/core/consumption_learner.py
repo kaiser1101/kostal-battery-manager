@@ -113,6 +113,18 @@ class ConsumptionLearner:
             timestamp: Timestamp of consumption
             consumption_kwh: Consumption in kWh for that hour
         """
+        # Validate: negative values indicate sensor/metering errors
+        if consumption_kwh < 0:
+            logger.warning(f"Negative consumption value detected: {consumption_kwh} kWh at {timestamp.strftime('%Y-%m-%d %H:%M')} - "
+                          f"Skipping (likely Kostal Smart Meter bug)")
+            return
+
+        # Validate: unrealistic high values (> 50 kWh/h suggests error)
+        if consumption_kwh > 50:
+            logger.warning(f"Unrealistically high consumption value: {consumption_kwh} kWh at {timestamp.strftime('%Y-%m-%d %H:%M')} - "
+                          f"Skipping (likely sensor error)")
+            return
+
         hour = timestamp.hour
 
         with sqlite3.connect(self.db_path) as conn:
@@ -127,6 +139,8 @@ class ConsumptionLearner:
                 datetime.now().isoformat()
             ))
             conn.commit()
+
+        logger.debug(f"Recorded consumption: {consumption_kwh:.2f} kWh at hour {hour}")
 
         # Clean up old data
         self._cleanup_old_data()
