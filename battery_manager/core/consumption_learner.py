@@ -312,24 +312,27 @@ class ConsumptionLearner:
             Dict with import results
         """
         try:
-            logger.info(f"Starting HA history import for {entity_id}, last {days} days...")
+            logger.info(f"Starting HA history import for entity '{entity_id}', last {days} days...")
 
             # Calculate time range
             end_time = datetime.now()
             start_time = end_time - timedelta(days=days)
+            logger.info(f"Time range: {start_time.isoformat()} to {end_time.isoformat()}")
 
             # Get history data from HA
             history = ha_client.get_history(entity_id, start_time, end_time)
 
             if not history:
+                logger.error(f"No history data received from HA for entity '{entity_id}'")
                 return {
                     'success': False,
-                    'error': 'No history data received from Home Assistant',
+                    'error': f'No history data received from Home Assistant for entity {entity_id}',
                     'imported_hours': 0,
-                    'skipped_days': 0
+                    'skipped_days': 0,
+                    'history_entries': 0
                 }
 
-            logger.info(f"Received {len(history)} data points from HA")
+            logger.info(f"Received {len(history)} history entries from HA")
 
             # Group data by date and hour
             hourly_data = {}  # Key: (date, hour), Value: list of values
@@ -372,14 +375,16 @@ class ConsumptionLearner:
                     continue
 
             if not hourly_data:
+                logger.error("No valid hourly data after filtering")
                 return {
                     'success': False,
-                    'error': 'No valid data points found in history',
+                    'error': 'No valid data points found in history after filtering',
                     'imported_hours': 0,
-                    'skipped_days': 0
+                    'skipped_days': 0,
+                    'history_entries': len(history)
                 }
 
-            logger.info(f"Grouped into {len(hourly_data)} hour buckets")
+            logger.info(f"Grouped into {len(hourly_data)} hour buckets from {len(history)} entries")
 
             # Calculate average for each hour and group by day
             daily_data_dict = {}  # Key: date, Value: dict with hours
@@ -393,8 +398,11 @@ class ConsumptionLearner:
 
                 daily_data_dict[date_key][hour_key] = avg_consumption
 
+            logger.info(f"Found data for {len(daily_data_dict)} unique days")
+
             # Convert to format for import_detailed_history
             daily_data = []
+            skipped_days = 0
             weekdays_de = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
 
             for date_key in sorted(daily_data_dict.keys()):
@@ -402,7 +410,8 @@ class ConsumptionLearner:
 
                 # Build 24-hour array (fill missing hours with 0 or skip incomplete days)
                 if len(hours_dict) < 12:  # Skip days with too little data
-                    logger.warning(f"Skipping {date_key}: only {len(hours_dict)} hours of data")
+                    logger.warning(f"Skipping {date_key}: only {len(hours_dict)} hours of data (need >= 12)")
+                    skipped_days += 1
                     continue
 
                 hours = []
@@ -427,17 +436,22 @@ class ConsumptionLearner:
                 })
 
             if not daily_data:
+                logger.error(f"No complete days found. Checked {len(daily_data_dict)} days, all had < 12 hours of data")
                 return {
                     'success': False,
-                    'error': 'No complete days found in history data',
+                    'error': f'No complete days found in history data. Checked {len(daily_data_dict)} days, all had less than 12 hours of data. Check if sensor {entity_id} is logging data correctly.',
                     'imported_hours': 0,
-                    'skipped_days': 0
+                    'skipped_days': len(daily_data_dict),
+                    'history_entries': len(history)
                 }
 
-            logger.info(f"Prepared {len(daily_data)} days for import")
+            logger.info(f"Prepared {len(daily_data)} days for import (skipped {skipped_days} incomplete days)")
 
             # Import the data
-            return self.import_detailed_history(daily_data)
+            result = self.import_detailed_history(daily_data)
+            # Add additional info
+            result['history_entries'] = len(history)
+            return result
 
         except Exception as e:
             logger.error(f"Error importing from Home Assistant: {e}", exc_info=True)
