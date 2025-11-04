@@ -34,6 +34,10 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 CORS(app)
 
 app.config['SECRET_KEY'] = os.urandom(24)
+# Disable template caching to ensure changes are reflected immediately
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.jinja_env.auto_reload = True
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 
 # Configuration
 CONFIG_PATH = os.getenv('CONFIG_PATH', '/data/options.json')
