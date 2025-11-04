@@ -6,6 +6,8 @@ Learns household consumption patterns over time
 
 import logging
 import sqlite3
+import csv
+import io
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from pathlib import Path
@@ -104,6 +106,198 @@ class ConsumptionLearner:
 
             conn.commit()
             logger.info(f"Added {count} hours of manual baseline data")
+
+    def import_detailed_history(self, daily_data: List[Dict]):
+        """
+        Import detailed historical data with individual daily profiles
+
+        Args:
+            daily_data: List of daily profiles, each containing:
+                {
+                    'date': 'YYYY-MM-DD' or datetime object,
+                    'weekday': 'Montag'|'Dienstag'|...|'Sonntag' (optional),
+                    'hours': [h0, h1, h2, ..., h23]  # 24 hourly consumption values in kWh
+                }
+
+        Example:
+            [
+                {
+                    'date': '2024-10-07',
+                    'weekday': 'Montag',
+                    'hours': [0.2, 0.2, 0.15, ..., 0.3]  # 24 values
+                },
+                ...
+            ]
+        """
+        logger.info(f"Importing detailed historical data for {len(daily_data)} days...")
+
+        if len(daily_data) > self.learning_days:
+            logger.warning(f"Provided {len(daily_data)} days but learning period is {self.learning_days} days. "
+                          f"Only the most recent {self.learning_days} days will be kept.")
+
+        imported_count = 0
+        skipped_count = 0
+
+        with sqlite3.connect(self.db_path) as conn:
+            for day_entry in daily_data:
+                try:
+                    # Parse date
+                    if isinstance(day_entry['date'], str):
+                        date = datetime.fromisoformat(day_entry['date'])
+                    else:
+                        date = day_entry['date']
+
+                    hours = day_entry['hours']
+
+                    # Validate: must have exactly 24 values
+                    if len(hours) != 24:
+                        logger.error(f"Invalid data for {date.strftime('%Y-%m-%d')}: "
+                                    f"Expected 24 hourly values, got {len(hours)}. Skipping.")
+                        skipped_count += 1
+                        continue
+
+                    # Import each hour
+                    for hour in range(24):
+                        consumption = float(hours[hour])
+
+                        # Validate value
+                        if consumption < 0:
+                            logger.warning(f"Negative value {consumption} kWh at {date.strftime('%Y-%m-%d')} hour {hour}, using 0")
+                            consumption = 0
+                        elif consumption > 50:
+                            logger.warning(f"Unrealistic value {consumption} kWh at {date.strftime('%Y-%m-%d')} hour {hour}, capping at 50")
+                            consumption = 50
+
+                        timestamp = date.replace(hour=hour, minute=0, second=0, microsecond=0)
+
+                        conn.execute("""
+                            INSERT OR REPLACE INTO hourly_consumption
+                            (timestamp, hour, consumption_kwh, is_manual, created_at)
+                            VALUES (?, ?, ?, 1, ?)
+                        """, (
+                            timestamp.isoformat(),
+                            hour,
+                            consumption,
+                            datetime.now().isoformat()
+                        ))
+                        imported_count += 1
+
+                except Exception as e:
+                    logger.error(f"Error importing day {day_entry.get('date', 'unknown')}: {e}")
+                    skipped_count += 1
+                    continue
+
+            conn.commit()
+
+        logger.info(f"Import complete: {imported_count} hourly records imported, {skipped_count} days skipped")
+
+        # Clean up old data
+        self._cleanup_old_data()
+
+        return {
+            'imported_hours': imported_count,
+            'skipped_days': skipped_count,
+            'success': skipped_count == 0
+        }
+
+    def import_from_csv(self, csv_content: str) -> Dict:
+        """
+        Import consumption data from CSV string
+
+        CSV Format:
+            datum,wochentag,h0,h1,h2,h3,...,h23
+            2024-10-07,Montag,0.2,0.2,0.15,0.15,...,0.3
+            2024-10-08,Dienstag,0.18,0.19,0.14,0.13,...,0.35
+
+        Args:
+            csv_content: CSV content as string
+
+        Returns:
+            Dict with import results
+        """
+        try:
+            logger.info("Parsing CSV data...")
+
+            # Parse CSV
+            csv_file = io.StringIO(csv_content)
+            reader = csv.DictReader(csv_file)
+
+            daily_data = []
+
+            for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is 1)
+                try:
+                    # Extract date and weekday
+                    date_str = row.get('datum', '').strip()
+                    weekday = row.get('wochentag', '').strip()
+
+                    if not date_str:
+                        logger.warning(f"Row {row_num}: Missing date, skipping")
+                        continue
+
+                    # Parse date
+                    try:
+                        date = datetime.strptime(date_str, '%Y-%m-%d')
+                    except ValueError:
+                        try:
+                            # Try alternative format
+                            date = datetime.strptime(date_str, '%d.%m.%Y')
+                        except ValueError:
+                            logger.error(f"Row {row_num}: Invalid date format '{date_str}', expected YYYY-MM-DD or DD.MM.YYYY")
+                            continue
+
+                    # Extract hourly values (h0 to h23)
+                    hours = []
+                    for h in range(24):
+                        col_name = f'h{h}'
+                        if col_name not in row:
+                            logger.error(f"Row {row_num}: Missing column '{col_name}'")
+                            break
+
+                        try:
+                            value = row[col_name].strip()
+                            # Replace comma with dot for German number format
+                            value = value.replace(',', '.')
+                            hours.append(float(value))
+                        except ValueError:
+                            logger.error(f"Row {row_num}: Invalid number in column '{col_name}': '{row[col_name]}'")
+                            break
+
+                    # Check if we have all 24 hours
+                    if len(hours) != 24:
+                        logger.error(f"Row {row_num}: Incomplete hourly data (got {len(hours)} values)")
+                        continue
+
+                    daily_data.append({
+                        'date': date,
+                        'weekday': weekday,
+                        'hours': hours
+                    })
+
+                except Exception as e:
+                    logger.error(f"Row {row_num}: Error parsing row: {e}")
+                    continue
+
+            if not daily_data:
+                return {
+                    'success': False,
+                    'error': 'No valid data found in CSV',
+                    'imported_hours': 0,
+                    'skipped_days': 0
+                }
+
+            logger.info(f"Successfully parsed {len(daily_data)} days from CSV")
+
+            # Import the parsed data
+            return self.import_detailed_history(daily_data)
+
+        except Exception as e:
+            logger.error(f"Error parsing CSV: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'imported_hours': 0,
+                'skipped_days': 0
+            }
 
     def record_consumption(self, timestamp: datetime, consumption_kwh: float):
         """
