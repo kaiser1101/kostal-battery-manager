@@ -774,8 +774,6 @@ function updateConsumptionChart() {
 
                 // Update accuracy display
                 const accuracyDiv = document.getElementById('forecast-accuracy');
-                console.log('Accuracy data:', data.accuracy, 'Hours:', data.accuracy_hours, 'Div exists:', !!accuracyDiv);
-
                 if (accuracyDiv) {
                     if (data.accuracy !== null && data.accuracy !== undefined) {
                         const accuracy = data.accuracy;
@@ -799,8 +797,6 @@ function updateConsumptionChart() {
                         accuracyDiv.innerHTML = '<span style="opacity: 0.5;">Noch nicht genügend Daten für Genauigkeitsberechnung</span>';
                         accuracyDiv.style.display = 'block';
                     }
-                } else {
-                    console.error('forecast-accuracy div not found!');
                 }
             }
         })
