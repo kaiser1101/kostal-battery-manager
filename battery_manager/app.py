@@ -10,6 +10,7 @@ import threading
 from datetime import datetime
 from flask import Flask, render_template, jsonify, request, redirect, url_for
 from flask_cors import CORS
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Setup logging
 log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
@@ -24,6 +25,10 @@ app = Flask(__name__,
             static_folder='static',
             static_url_path='/static',
             template_folder='templates')
+
+# Configure for Home Assistant Ingress support
+# This ensures url_for() generates correct URLs with the Ingress prefix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 # Enable CORS for Ingress
 CORS(app)

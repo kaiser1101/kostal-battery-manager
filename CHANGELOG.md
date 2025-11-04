@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.3] - 2025-11-04
+
+### Fixed
+- **🔧 ProxyFix für url_for() Ingress-Support** - Werkzeug ProxyFix Middleware hinzugefügt
+- Flask app.wsgi_app mit ProxyFix konfiguriert für korrekte URL-Generierung
+- url_for() generiert nun URLs mit korrektem Ingress-Präfix
+- Verarbeitet X-Forwarded-* Header von Home Assistant Ingress-Proxy
+- Dashboard Import-Link zeigt nun korrekte URL beim Mouseover
+
+### Technical
+- Importiert werkzeug.middleware.proxy_fix.ProxyFix
+- Konfiguration: x_for=1, x_proto=1, x_host=1, x_prefix=1
+- Ermöglicht Flask, hinter Reverse-Proxy korrekt zu arbeiten
+
 ## [0.5.2] - 2025-11-04
 
 ### Fixed
