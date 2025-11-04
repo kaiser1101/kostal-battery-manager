@@ -925,27 +925,20 @@ def api_consumption_forecast_chart():
         accuracy = None
         accuracy_hours = 0
 
-        logger.info(f"Accuracy calculation starting - actual_consumption length: {len(actual_consumption) if actual_consumption else 0}, forecast_consumption length: {len(forecast_consumption) if forecast_consumption else 0}")
-
         if actual_consumption and forecast_consumption:
             errors = []
             now = datetime.now()
             current_hour = now.hour
 
-            logger.info(f"Current hour: {current_hour}, will check hours 0-{current_hour-1}")
-
             for hour in range(current_hour):  # Only completed hours
                 actual = actual_consumption[hour] if hour < len(actual_consumption) else None
                 forecast = forecast_consumption[hour] if hour < len(forecast_consumption) else None
-
-                logger.debug(f"Hour {hour}: actual={actual}, forecast={forecast}")
 
                 # Skip if either value is missing or forecast is too small (division by zero)
                 if actual is not None and forecast is not None and forecast > 0.01:
                     # Calculate percentage error
                     percentage_error = abs(actual - forecast) / forecast * 100
                     errors.append(percentage_error)
-                    logger.debug(f"Hour {hour}: error={percentage_error:.1f}%")
 
             if errors:
                 # Mean Absolute Percentage Error (MAPE)
@@ -953,13 +946,7 @@ def api_consumption_forecast_chart():
                 # Convert to accuracy (100% = perfect, 0% = completely wrong)
                 accuracy = max(0, 100 - mape)
                 accuracy_hours = len(errors)
-                logger.info(f"Forecast accuracy: {accuracy:.1f}% based on {accuracy_hours} hours (MAPE: {mape:.1f}%)")
-            else:
-                logger.info(f"No accuracy calculated - current_hour: {current_hour}, errors found: 0")
-                logger.info(f"First 5 actual values: {actual_consumption[:5] if actual_consumption else 'None'}")
-                logger.info(f"First 5 forecast values: {forecast_consumption[:5] if forecast_consumption else 'None'}")
-        else:
-            logger.info(f"Accuracy calculation skipped - actual_consumption: {bool(actual_consumption)}, forecast_consumption: {bool(forecast_consumption)}")
+                logger.debug(f"Forecast accuracy: {accuracy:.1f}% based on {accuracy_hours} hours (MAPE: {mape:.1f}%)")
 
         return jsonify({
             'success': True,
