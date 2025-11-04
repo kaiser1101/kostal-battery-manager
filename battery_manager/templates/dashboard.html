@@ -156,10 +156,28 @@
         </div>
     </div>
 
-    <!-- Quick Stats -->
+    <!-- Consumption Learning (v0.4.0) -->
     <div class="card stats-card">
-        <h2>📈 Statistik (Coming Soon)</h2>
-        <p>Hier werden Charts zu Preisen, Batterieladung und Verbrauch angezeigt...</p>
+        <h2>📊 Verbrauchslernen</h2>
+        <div id="learning-stats" style="display: flex; flex-direction: column; gap: 1rem;">
+            <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+                <div>
+                    <div style="font-size: 0.9rem; opacity: 0.7;">Lernfortschritt:</div>
+                    <div id="learning-progress" style="font-size: 1.5rem; font-weight: bold;">--%</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.9rem; opacity: 0.7;">Datensätze:</div>
+                    <div id="learning-records" style="font-size: 1.5rem; font-weight: bold;">0</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.9rem; opacity: 0.7;">Gelernte Stunden:</div>
+                    <div id="learned-hours" style="font-size: 1.5rem; font-weight: bold;">0</div>
+                </div>
+            </div>
+            <div style="font-size: 0.85rem; opacity: 0.6;" id="learning-period">
+                Zeitraum: --
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -512,6 +530,54 @@ function recalculatePlan() {
         console.error(error);
     });
 }
+
+// v0.4.0 - Update consumption learning statistics
+function updateLearningStats() {
+    fetch('api/consumption_learning')
+        .then(response => response.json())
+        .then(data => {
+            if (data.enabled && data.statistics) {
+                const stats = data.statistics;
+
+                // Update progress
+                document.getElementById('learning-progress').textContent =
+                    stats.learning_progress + '%';
+
+                // Update records
+                document.getElementById('learning-records').textContent =
+                    stats.total_records;
+
+                // Update learned hours
+                document.getElementById('learned-hours').textContent =
+                    stats.learned_records;
+
+                // Update period
+                if (stats.oldest_record && stats.newest_record) {
+                    const oldest = new Date(stats.oldest_record);
+                    const newest = new Date(stats.newest_record);
+                    document.getElementById('learning-period').textContent =
+                        `Zeitraum: ${oldest.toLocaleDateString('de-DE')} - ${newest.toLocaleDateString('de-DE')}`;
+                } else {
+                    document.getElementById('learning-period').textContent =
+                        'Zeitraum: Keine Daten';
+                }
+            } else {
+                // Learning disabled or no data
+                document.getElementById('learning-progress').textContent = 'Deaktiviert';
+                document.getElementById('learning-records').textContent = '-';
+                document.getElementById('learned-hours').textContent = '-';
+                document.getElementById('learning-period').textContent =
+                    data.message || 'Verbrauchslernen nicht aktiviert';
+            }
+        })
+        .catch(error => {
+            console.error('Error updating learning stats:', error);
+        });
+}
+
+// Update learning stats every 30 seconds
+updateLearningStats();
+setInterval(updateLearningStats, 30000);
 
 // Cleanup on page unload
 window.addEventListener('beforeunload', () => {

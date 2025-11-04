@@ -1,5 +1,65 @@
 # Changelog
 
+## [0.4.0] - 2025-11-04
+
+### Added
+- **🎓 Consumption Learning System** - Self-learning household consumption patterns
+- SQLite-based consumption learning with 4-week rolling window (configurable 7-90 days)
+- Manual load profile initialization for immediate baseline (24-hour profile)
+- Automatic hourly consumption recording from Home Assistant sensor
+- Intelligent energy deficit prediction based on learned consumption patterns
+- Consumption-aware charging optimization (replaces simple PV threshold)
+- New dashboard card "Verbrauchslernen" showing:
+  - Learning progress percentage (manual vs. learned data)
+  - Total data records and learned hours
+  - Time period of collected data
+- New API endpoint `/api/consumption_learning` for statistics and hourly profile
+- Configuration parameters:
+  - `enable_consumption_learning`: Enable/disable learning (default: true)
+  - `learning_period_days`: Learning period in days (default: 28, range: 7-90)
+  - `home_consumption_sensor`: HA sensor for consumption recording
+  - `manual_load_profile`: Initial 24-hour baseline profile (0-23 hours with kW values)
+  - `average_daily_consumption`: Alternative - daily consumption in kWh (divided by 24 for fallback)
+  - `default_hourly_consumption_fallback`: Fallback value when no data (default: 1.0 kWh/h)
+
+### Changed
+- **Improved charging logic** now considers hourly consumption patterns vs. hourly PV forecast
+- Simple daily PV threshold replaced with sophisticated hourly energy balance calculation
+- TibberOptimizer now uses `predict_energy_deficit()` method for better decisions
+- Charging decisions now account for morning consumption peaks even when daily PV total is sufficient
+- Status explanations updated to show energy balance information
+- ConsumptionLearner integrated into TibberOptimizer for real-time predictions
+- **Flexible fallback configuration**: Choose between manual 24h profile OR simple daily average
+  - Priority: 1) `default_hourly_consumption_fallback`, 2) `average_daily_consumption / 24`, 3) 1.0 kWh/h
+  - No error if no baseline data provided - system starts learning from zero with sensible fallback
+
+### Technical
+- Created `ConsumptionLearner` class with SQLite backend (`/data/consumption_learning.db`)
+- Database schema with `hourly_consumption` table tracking manual/learned data
+- `add_manual_profile()` generates 28 days of baseline from user's 24-hour profile
+- `record_consumption()` replaces old data automatically (rolling window)
+- `get_average_consumption()` returns learned average per hour
+- `predict_consumption_until()` predicts total consumption to target hour
+- `get_statistics()` provides learning progress metrics
+- Automatic cleanup of data older than learning period
+- Hourly consumption recording in controller loop
+- Dashboard auto-updates learning statistics every 30 seconds
+
+### Why This Matters
+The simple "daily PV threshold" (e.g., 16.9 kWh PV forecast) doesn't account for time distribution:
+- **Problem**: Morning 7-10am has only 1.07 kWh PV but 3-5 kWh consumption → Battery depletes!
+- **Solution**: Learning system analyzes hourly patterns and charges battery to bridge morning gap
+
+### Example
+Before (v0.3.x):
+- Daily PV: 16.9 kWh > 5 kWh threshold → ✅ Don't charge
+- Reality: Morning deficit drains battery → ❌ Problem!
+
+After (v0.4.0):
+- Hourly analysis: PV 7-10am = 1.07 kWh, Consumption 7-10am = 4.5 kWh
+- Predicted deficit: 3.43 kWh → 🔋 Charge battery during night!
+- Result: Battery ready for morning consumption peak → ✅ Success!
+
 ## [0.3.7] - 2025-11-03
 
 ### Fixed
