@@ -337,11 +337,20 @@ class ConsumptionLearner:
             # Group data by date and hour
             hourly_data = {}  # Key: (date, hour), Value: list of values
 
+            # Counters for debugging
+            skipped_no_timestamp = 0
+            skipped_unavailable = 0
+            skipped_not_numeric = 0
+            skipped_negative = 0
+            skipped_too_high = 0
+            valid_entries = 0
+
             for entry in history:
                 try:
                     # Parse timestamp
                     timestamp_str = entry.get('last_changed') or entry.get('last_updated')
                     if not timestamp_str:
+                        skipped_no_timestamp += 1
                         continue
 
                     timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
@@ -349,16 +358,29 @@ class ConsumptionLearner:
                     # Parse state value
                     state = entry.get('state')
                     if state in ['unknown', 'unavailable', None]:
+                        skipped_unavailable += 1
                         continue
 
                     try:
                         value = float(state)
                     except (ValueError, TypeError):
+                        skipped_not_numeric += 1
                         continue
 
-                    # Skip negative and unrealistic values
-                    if value < 0 or value > 50:
+                    # Skip negative values
+                    if value < 0:
+                        skipped_negative += 1
                         continue
+
+                    # Skip unrealistic values (> 50000 W = 50 kW)
+                    if value > 50000:
+                        skipped_too_high += 1
+                        continue
+
+                    # Convert Watt to kWh if needed (values > 50 are likely Watt)
+                    # Typical home consumption: 0.1-10 kWh/h, or 100-10000 W
+                    if value > 50:
+                        value = value / 1000  # Convert W to kW
 
                     # Group by date and hour
                     date_key = timestamp.date()
@@ -369,10 +391,16 @@ class ConsumptionLearner:
                         hourly_data[key] = []
 
                     hourly_data[key].append(value)
+                    valid_entries += 1
 
                 except Exception as e:
                     logger.debug(f"Skipping invalid history entry: {e}")
                     continue
+
+            logger.info(f"Processing summary: {valid_entries} valid, "
+                       f"{skipped_unavailable} unavailable, {skipped_not_numeric} non-numeric, "
+                       f"{skipped_negative} negative, {skipped_too_high} too high, "
+                       f"{skipped_no_timestamp} no timestamp")
 
             if not hourly_data:
                 logger.error("No valid hourly data after filtering")
@@ -400,6 +428,11 @@ class ConsumptionLearner:
 
             logger.info(f"Found data for {len(daily_data_dict)} unique days")
 
+            # Log hours per day for debugging
+            for date_key in sorted(daily_data_dict.keys()):
+                hours_dict = daily_data_dict[date_key]
+                logger.info(f"  {date_key}: {len(hours_dict)} hours (hours: {sorted(hours_dict.keys())})")
+
             # Convert to format for import_detailed_history
             daily_data = []
             skipped_days = 0
@@ -408,9 +441,10 @@ class ConsumptionLearner:
             for date_key in sorted(daily_data_dict.keys()):
                 hours_dict = daily_data_dict[date_key]
 
-                # Build 24-hour array (fill missing hours with 0 or skip incomplete days)
-                if len(hours_dict) < 12:  # Skip days with too little data
-                    logger.warning(f"Skipping {date_key}: only {len(hours_dict)} hours of data (need >= 12)")
+                # Build 24-hour array (fill missing hours with average or skip incomplete days)
+                # Lowered threshold to 3 hours minimum (was 12) to handle sparse history data
+                if len(hours_dict) < 3:  # Skip days with too little data
+                    logger.warning(f"Skipping {date_key}: only {len(hours_dict)} hours of data (need >= 3)")
                     skipped_days += 1
                     continue
 
@@ -436,10 +470,10 @@ class ConsumptionLearner:
                 })
 
             if not daily_data:
-                logger.error(f"No complete days found. Checked {len(daily_data_dict)} days, all had < 12 hours of data")
+                logger.error(f"No complete days found. Checked {len(daily_data_dict)} days, all had < 3 hours of data")
                 return {
                     'success': False,
-                    'error': f'No complete days found in history data. Checked {len(daily_data_dict)} days, all had less than 12 hours of data. Check if sensor {entity_id} is logging data correctly.',
+                    'error': f'No complete days found in history data. Checked {len(daily_data_dict)} days, all had less than 3 hours of data. Check if sensor {entity_id} is logging data correctly.',
                     'imported_hours': 0,
                     'skipped_days': len(daily_data_dict),
                     'history_entries': len(history)
