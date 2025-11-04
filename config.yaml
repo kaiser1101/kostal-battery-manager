@@ -1,5 +1,5 @@
 name: Kostal Battery Manager
-version: "0.6.0"
+version: "0.6.1"
 slug: kostal_battery_manager
 description: "Intelligente Batteriesteuerung für Kostal Plenticore Plus mit Tibber-Optimierung, Verbrauchslernen und automatischem Home Assistant Import"
 url: "https://github.com/SvenSteuer/kostal-battery-manager"
