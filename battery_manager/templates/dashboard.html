@@ -143,6 +143,19 @@
         </div>
     </div>
 
+    <!-- Charging Status Explanation (v0.3.6) -->
+    <div class="card forecast-card">
+        <h2>ℹ️ Ladestatus</h2>
+        <div style="padding: 1rem 0;">
+            <div id="charging-explanation" style="font-size: 1.1rem; line-height: 1.6; margin-bottom: 1.5rem;">
+                Lade Status...
+            </div>
+            <div id="charging-conditions" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <!-- Conditions will be dynamically inserted here -->
+            </div>
+        </div>
+    </div>
+
     <!-- Quick Stats -->
     <div class="card stats-card">
         <h2>📈 Statistik (Coming Soon)</h2>
@@ -206,6 +219,63 @@ function showNotification(type, message, duration = 3000) {
 // Auto-refresh status every 2 seconds (v0.2.1)
 let refreshInterval = setInterval(updateStatus, 2000);
 updateStatus();
+updateChargingStatus(); // v0.3.6
+
+// v0.3.6 - Update charging status explanation
+function updateChargingStatus() {
+    fetch('api/charging_status')
+        .then(response => response.json())
+        .then(data => {
+            // Update explanation text
+            document.getElementById('charging-explanation').textContent = data.explanation;
+
+            // Update conditions
+            const conditionsContainer = document.getElementById('charging-conditions');
+            conditionsContainer.innerHTML = '';
+
+            if (data.conditions && Object.keys(data.conditions).length > 0) {
+                // Sort conditions by priority
+                const sortedConditions = Object.entries(data.conditions)
+                    .sort(([,a], [,b]) => a.priority - b.priority);
+
+                sortedConditions.forEach(([key, condition]) => {
+                    const conditionDiv = document.createElement('div');
+                    conditionDiv.style.cssText = `
+                        display: flex;
+                        align-items: center;
+                        gap: 0.75rem;
+                        padding: 0.5rem;
+                        background: rgba(255, 255, 255, 0.05);
+                        border-radius: 4px;
+                    `;
+
+                    const icon = document.createElement('span');
+                    icon.style.cssText = `
+                        font-size: 1.5rem;
+                        flex-shrink: 0;
+                    `;
+                    icon.textContent = condition.fulfilled ? '✅' : '❌';
+
+                    const label = document.createElement('span');
+                    label.textContent = condition.label;
+                    label.style.cssText = `
+                        flex-grow: 1;
+                        opacity: ${condition.fulfilled ? '1' : '0.6'};
+                    `;
+
+                    conditionDiv.appendChild(icon);
+                    conditionDiv.appendChild(label);
+                    conditionsContainer.appendChild(conditionDiv);
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error updating charging status:', error);
+        });
+}
+
+// Update charging status every 5 seconds
+setInterval(updateChargingStatus, 5000);
 
 function updateStatus() {
     fetch('api/status')
@@ -430,6 +500,7 @@ function recalculatePlan() {
             // Wait a moment, then update status to show new plan
             setTimeout(() => {
                 updateStatus();
+                updateChargingStatus(); // v0.3.6
             }, 500);
         } else {
             showNotification('error', 'Fehler bei der Berechnung');
