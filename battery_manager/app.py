@@ -744,6 +744,105 @@ def api_adjust_power():
             'message': str(e)
         }), 500
 
+@app.route('/api/tibber_price_chart')
+def api_tibber_price_chart():
+    """Get Tibber price data for today (v0.6.3) for chart display"""
+    try:
+        if not ha_client:
+            return jsonify({
+                'success': False,
+                'error': 'HA client not available'
+            }), 500
+
+        tibber_sensor = config.get('tibber_price_sensor', 'sensor.tibber_prices')
+        prices_data = ha_client.get_state_with_attributes(tibber_sensor)
+
+        if not prices_data or 'attributes' not in prices_data:
+            return jsonify({
+                'success': False,
+                'error': 'No Tibber price data available'
+            }), 500
+
+        today_prices = prices_data['attributes'].get('today', [])
+
+        if not today_prices:
+            return jsonify({
+                'success': False,
+                'error': 'No price data for today'
+            }), 500
+
+        # Format for chart: labels (hours) and data (prices in Cent)
+        hours = []
+        prices = []
+
+        for entry in today_prices:
+            # Parse hour from timestamp
+            start_time = entry.get('startsAt', '')
+            if start_time:
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                    hours.append(f"{dt.hour:02d}:00")
+                    # Convert EUR to Cent
+                    prices.append(round(entry.get('total', 0) * 100, 2))
+                except:
+                    continue
+
+        return jsonify({
+            'success': True,
+            'labels': hours,
+            'prices': prices,
+            'current_hour': datetime.now().hour
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting Tibber price chart data: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/consumption_forecast_chart')
+def api_consumption_forecast_chart():
+    """Get consumption forecast for today (v0.6.3) based on learned data"""
+    try:
+        if not consumption_learner:
+            return jsonify({
+                'success': False,
+                'error': 'Consumption learner not available'
+            }), 500
+
+        # Get hourly profile
+        profile = consumption_learner.get_hourly_profile()
+
+        if not profile:
+            return jsonify({
+                'success': False,
+                'error': 'No consumption data available'
+            }), 500
+
+        # Format for chart: labels (hours) and data (consumption in kW)
+        hours = []
+        consumption = []
+
+        for hour in range(24):
+            hours.append(f"{hour:02d}:00")
+            consumption.append(round(profile.get(hour, 0), 2))
+
+        return jsonify({
+            'success': True,
+            'labels': hours,
+            'consumption': consumption,
+            'current_hour': datetime.now().hour
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting consumption forecast chart data: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/consumption_learning')
 def api_consumption_learning():
     """Get consumption learning statistics and hourly profile (v0.4.0)"""

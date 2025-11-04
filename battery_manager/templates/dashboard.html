@@ -184,6 +184,22 @@
             </div>
         </div>
     </div>
+
+    <!-- Tibber Price Chart (v0.6.3) -->
+    <div class="card chart-card">
+        <h2>💰 Tibber Preisverlauf Heute</h2>
+        <div style="position: relative; height: 300px; padding: 1rem;">
+            <canvas id="priceChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Consumption Forecast Chart (v0.6.3) -->
+    <div class="card chart-card">
+        <h2>📈 Prognostizierter Verbrauch Heute</h2>
+        <div style="position: relative; height: 300px; padding: 1rem;">
+            <canvas id="consumptionChart"></canvas>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -584,9 +600,183 @@ function updateLearningStats() {
 updateLearningStats();
 setInterval(updateLearningStats, 30000);
 
+// v0.6.3 - Chart.js Charts
+let priceChart = null;
+let consumptionChart = null;
+
+function initCharts() {
+    // Price Chart
+    const priceCtx = document.getElementById('priceChart');
+    if (priceCtx) {
+        priceChart = new Chart(priceCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Preis (Cent/kWh)',
+                    data: [],
+                    borderColor: 'rgb(255, 193, 7)',
+                    backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        labels: { color: '#fff' }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return 'Preis: ' + context.parsed.y.toFixed(2) + ' Cent/kWh';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#ccc' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                    },
+                    y: {
+                        ticks: { color: '#ccc' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        title: {
+                            display: true,
+                            text: 'Cent/kWh',
+                            color: '#ccc'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Consumption Chart
+    const consumptionCtx = document.getElementById('consumptionChart');
+    if (consumptionCtx) {
+        consumptionChart = new Chart(consumptionCtx, {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Verbrauch (kW)',
+                    data: [],
+                    backgroundColor: 'rgba(76, 175, 80, 0.6)',
+                    borderColor: 'rgb(76, 175, 80)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        labels: { color: '#fff' }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return 'Verbrauch: ' + context.parsed.y.toFixed(2) + ' kW';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#ccc' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                    },
+                    y: {
+                        ticks: { color: '#ccc' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        title: {
+                            display: true,
+                            text: 'kW',
+                            color: '#ccc'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Load initial data
+    updatePriceChart();
+    updateConsumptionChart();
+
+    // Update charts every 5 minutes
+    setInterval(updatePriceChart, 300000);
+    setInterval(updateConsumptionChart, 300000);
+}
+
+function updatePriceChart() {
+    fetch('api/tibber_price_chart')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && priceChart) {
+                priceChart.data.labels = data.labels;
+                priceChart.data.datasets[0].data = data.prices;
+
+                // Highlight current hour
+                const currentHour = data.current_hour;
+                priceChart.data.datasets[0].pointBackgroundColor = data.labels.map((label, index) => {
+                    return index === currentHour ? 'red' : 'rgb(255, 193, 7)';
+                });
+                priceChart.data.datasets[0].pointRadius = data.labels.map((label, index) => {
+                    return index === currentHour ? 6 : 3;
+                });
+
+                priceChart.update();
+            }
+        })
+        .catch(error => {
+            console.error('Error updating price chart:', error);
+        });
+}
+
+function updateConsumptionChart() {
+    fetch('api/consumption_forecast_chart')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && consumptionChart) {
+                consumptionChart.data.labels = data.labels;
+                consumptionChart.data.datasets[0].data = data.consumption;
+
+                // Highlight current hour
+                const currentHour = data.current_hour;
+                consumptionChart.data.datasets[0].backgroundColor = data.labels.map((label, index) => {
+                    return index === currentHour ? 'rgba(255, 193, 7, 0.6)' : 'rgba(76, 175, 80, 0.6)';
+                });
+                consumptionChart.data.datasets[0].borderColor = data.labels.map((label, index) => {
+                    return index === currentHour ? 'rgb(255, 193, 7)' : 'rgb(76, 175, 80)';
+                });
+
+                consumptionChart.update();
+            }
+        })
+        .catch(error => {
+            console.error('Error updating consumption chart:', error);
+        });
+}
+
+// Initialize charts when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initCharts);
+} else {
+    initCharts();
+}
+
 // Cleanup on page unload
 window.addEventListener('beforeunload', () => {
     clearInterval(refreshInterval);
+    if (priceChart) priceChart.destroy();
+    if (consumptionChart) consumptionChart.destroy();
 });
 </script>
 {% endblock %}
