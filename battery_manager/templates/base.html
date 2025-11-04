@@ -5,22 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Kostal Battery Manager{% endblock %}</title>
     <script>
-        // Calculate base path for Ingress support
-        const basePath = window.location.pathname.split('/').slice(0, -1).join('/') || '';
-
-        // Dynamically load CSS
-        const cssLink = document.createElement('link');
-        cssLink.rel = 'stylesheet';
-        cssLink.href = basePath + '/static/css/style.css';
-        document.head.appendChild(cssLink);
-
-        // Set favicon
-        const favicon = document.createElement('link');
-        favicon.rel = 'icon';
-        favicon.type = 'image/png';
-        favicon.href = basePath + '/static/img/icon.png';
-        document.head.appendChild(favicon);
+        // Get base path from backend (for Ingress support)
+        const basePath = '{{ base_path | default("") }}';
+        console.log('Base path from backend:', basePath);
     </script>
+    <link rel="stylesheet" href="{{ base_path | default('') }}/static/css/style.css">
+    <link rel="icon" type="image/png" href="{{ base_path | default('') }}/static/img/icon.png">
 </head>
 <body>
     <header>
@@ -41,12 +31,7 @@
 
     <!-- Chart.js for graphs -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-    <script>
-        // Dynamically load app.js with correct base path
-        const appScript = document.createElement('script');
-        appScript.src = basePath + '/static/js/app.js';
-        document.body.appendChild(appScript);
-    </script>
+    <script src="{{ base_path | default('') }}/static/js/app.js"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>
