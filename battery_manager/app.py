@@ -262,22 +262,27 @@ except Exception as e:
 @app.route('/')
 def index():
     """Main dashboard"""
-    return render_template('dashboard.html', config=config, state=app_state)
+    # Get base path for Ingress support
+    base_path = request.environ.get('SCRIPT_NAME', '')
+    return render_template('dashboard.html', config=config, state=app_state, base_path=base_path)
 
 @app.route('/config')
 def config_page():
     """Configuration page"""
-    return render_template('config.html', config=config)
+    base_path = request.environ.get('SCRIPT_NAME', '')
+    return render_template('config.html', config=config, base_path=base_path)
 
 @app.route('/logs')
 def logs_page():
     """Logs page"""
-    return render_template('logs.html', logs=app_state['logs'])
+    base_path = request.environ.get('SCRIPT_NAME', '')
+    return render_template('logs.html', logs=app_state['logs'], base_path=base_path)
 
 @app.route('/consumption_import')
 def consumption_import_page():
     """Consumption data import page (v0.5.0)"""
-    return render_template('consumption_import.html')
+    base_path = request.environ.get('SCRIPT_NAME', '')
+    return render_template('consumption_import.html', base_path=base_path)
 
 @app.route('/debug_consumption')
 def debug_consumption_html():
