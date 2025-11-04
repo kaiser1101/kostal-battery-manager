@@ -359,6 +359,8 @@ class ConsumptionLearner:
                         continue
 
                     timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                    # Convert to local timezone to get correct date/hour
+                    local_timestamp = timestamp.astimezone()
 
                     # Parse state value
                     state = entry.get('state')
@@ -387,9 +389,9 @@ class ConsumptionLearner:
                     if value > 50:
                         value = value / 1000  # Convert W to kW
 
-                    # Group by date and hour
-                    date_key = timestamp.date()
-                    hour_key = timestamp.hour
+                    # Group by date and hour (using local timezone)
+                    date_key = local_timestamp.date()
+                    hour_key = local_timestamp.hour
                     key = (date_key, hour_key)
 
                     if key not in hourly_data:
@@ -635,7 +637,7 @@ class ConsumptionLearner:
         Returns:
             Predicted total consumption in kWh
         """
-        now = datetime.now()
+        now = datetime.now().astimezone()
         current_hour = now.hour
         current_minute = now.minute
 

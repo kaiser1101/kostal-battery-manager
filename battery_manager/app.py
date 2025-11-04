@@ -782,7 +782,9 @@ def api_tibber_price_chart():
                 try:
                     from datetime import datetime
                     dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
-                    hours.append(f"{dt.hour:02d}:00")
+                    # Convert to local timezone
+                    local_dt = dt.astimezone()
+                    hours.append(f"{local_dt.hour:02d}:00")
                     # Convert EUR to Cent
                     prices.append(round(entry.get('total', 0) * 100, 2))
                 except:
@@ -792,7 +794,7 @@ def api_tibber_price_chart():
             'success': True,
             'labels': hours,
             'prices': prices,
-            'current_hour': datetime.now().hour
+            'current_hour': datetime.now().astimezone().hour
         })
 
     except Exception as e:
@@ -870,11 +872,28 @@ def api_consumption_forecast_chart():
                             continue
 
                     # Calculate averages per hour
-                    current_hour = datetime.now().hour
+                    now = datetime.now()
+                    current_hour = now.hour
+                    current_minute = now.minute
+
                     for hour in range(24):
                         if hour in hourly_actual and len(hourly_actual[hour]) > 0:
                             avg = sum(hourly_actual[hour]) / len(hourly_actual[hour])
-                            actual_consumption.append(round(avg, 2))
+
+                            # For current hour: blend actual data with forecast
+                            # This prevents unrealistic spikes from temporary high loads
+                            if hour == current_hour and current_minute < 59:
+                                # Calculate weighted average:
+                                # - Use actual average for elapsed minutes
+                                # - Use forecast for remaining minutes
+                                elapsed_fraction = current_minute / 60.0
+                                remaining_fraction = (60 - current_minute) / 60.0
+                                forecast_value = profile.get(hour, avg)  # Fallback to avg if no forecast
+
+                                blended = (avg * elapsed_fraction) + (forecast_value * remaining_fraction)
+                                actual_consumption.append(round(blended, 2))
+                            else:
+                                actual_consumption.append(round(avg, 2))
                         elif hour <= current_hour:
                             # Current or past hour with no data
                             actual_consumption.append(None)
@@ -897,7 +916,7 @@ def api_consumption_forecast_chart():
             'labels': hours,
             'forecast': forecast_consumption,
             'actual': actual_consumption,
-            'current_hour': datetime.now().hour
+            'current_hour': datetime.now().astimezone().hour
         })
 
     except Exception as e:
