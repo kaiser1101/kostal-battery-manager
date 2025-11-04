@@ -774,25 +774,33 @@ function updateConsumptionChart() {
 
                 // Update accuracy display
                 const accuracyDiv = document.getElementById('forecast-accuracy');
-                if (accuracyDiv && data.accuracy !== null && data.accuracy !== undefined) {
-                    const accuracy = data.accuracy;
-                    const hours = data.accuracy_hours || 0;
+                console.log('Accuracy data:', data.accuracy, 'Hours:', data.accuracy_hours, 'Div exists:', !!accuracyDiv);
 
-                    // Color coding based on accuracy
-                    let color = '#4CAF50';  // Green for good accuracy
-                    if (accuracy < 70) color = '#FF9800';  // Orange for medium
-                    if (accuracy < 50) color = '#f44336';  // Red for poor
+                if (accuracyDiv) {
+                    if (data.accuracy !== null && data.accuracy !== undefined) {
+                        const accuracy = data.accuracy;
+                        const hours = data.accuracy_hours || 0;
 
-                    accuracyDiv.innerHTML = `
-                        <span style="color: ${color}; font-weight: bold;">
-                            Prognose-Genauigkeit: ${accuracy.toFixed(1)}%
-                        </span>
-                        <span style="opacity: 0.6; margin-left: 1rem;">
-                            (${hours} ${hours === 1 ? 'Stunde' : 'Stunden'} verglichen)
-                        </span>
-                    `;
-                } else if (accuracyDiv) {
-                    accuracyDiv.innerHTML = '<span style="opacity: 0.5;">Noch nicht genügend Daten für Genauigkeitsberechnung</span>';
+                        // Color coding based on accuracy
+                        let color = '#4CAF50';  // Green for good accuracy
+                        if (accuracy < 70) color = '#FF9800';  // Orange for medium
+                        if (accuracy < 50) color = '#f44336';  // Red for poor
+
+                        accuracyDiv.innerHTML = `
+                            <span style="color: ${color}; font-weight: bold;">
+                                Prognose-Genauigkeit: ${accuracy.toFixed(1)}%
+                            </span>
+                            <span style="opacity: 0.6; margin-left: 1rem;">
+                                (${hours} ${hours === 1 ? 'Stunde' : 'Stunden'} verglichen)
+                            </span>
+                        `;
+                        accuracyDiv.style.display = 'block';
+                    } else {
+                        accuracyDiv.innerHTML = '<span style="opacity: 0.5;">Noch nicht genügend Daten für Genauigkeitsberechnung</span>';
+                        accuracyDiv.style.display = 'block';
+                    }
+                } else {
+                    console.error('forecast-accuracy div not found!');
                 }
             }
         })

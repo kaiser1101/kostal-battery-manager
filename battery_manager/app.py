@@ -945,6 +945,9 @@ def api_consumption_forecast_chart():
                 # Convert to accuracy (100% = perfect, 0% = completely wrong)
                 accuracy = max(0, 100 - mape)
                 accuracy_hours = len(errors)
+                logger.info(f"Forecast accuracy: {accuracy:.1f}% based on {accuracy_hours} hours (MAPE: {mape:.1f}%)")
+            else:
+                logger.info(f"No accuracy calculated - current_hour: {current_hour}, errors found: 0")
 
         return jsonify({
             'success': True,
