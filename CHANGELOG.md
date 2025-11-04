@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.3.6] - 2025-11-03
+
+### Added
+- **Dynamic charging status explanation** on dashboard showing WHY and WHEN battery will be charged
+- New "Ladestatus" card with human-readable explanation
+- Visual condition checkboxes with green checkmarks (✅) and red crosses (❌)
+- Shows all relevant conditions:
+  - SOC below safety minimum
+  - Battery already full
+  - Sufficient PV expected
+  - Planned charging time reached
+  - Charging plan available
+- Auto-updates every 5 seconds for real-time status
+- New API endpoint `/api/charging_status` for detailed charging decision logic
+
+### Examples
+Status texts dynamically generated:
+- "⚡ Der Speicher wird SOFORT geladen, weil der SOC (15%) unter dem Sicherheitsminimum von 20% liegt."
+- "⏳ Der Speicher wird ab 01:34 Uhr geladen, sodass er bis 04:00 Uhr bei 95% ist."
+- "☀️ Der Speicher wird nicht aus dem Netz geladen, weil der prognostizierte Solarertrag mit 12 kWh über dem Schwellwert von 5 kWh liegt."
+- "✅ Der Speicher wird nicht geladen, weil er bereits bei 96% liegt (Ziel: 95%)."
+
+### Technical
+- Added `get_charging_status_explanation()` function for status generation
+- Condition evaluation with priority system
+- Integrated with existing charging decision logic
+
 ## [0.3.5] - 2025-11-03
 
 ### Added

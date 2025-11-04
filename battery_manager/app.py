@@ -489,6 +489,25 @@ def api_recalculate_plan():
             'message': str(e)
         }), 500
 
+@app.route('/api/charging_status')
+def api_charging_status():
+    """Get detailed charging status explanation (v0.3.6)"""
+    try:
+        status = get_charging_status_explanation()
+        return jsonify(status)
+    except Exception as e:
+        logger.error(f"Error getting charging status: {e}")
+        return jsonify({
+            'explanation': 'Fehler beim Abrufen des Status',
+            'will_charge': False,
+            'conditions': {},
+            'current_soc': 0,
+            'target_soc': 0,
+            'pv_remaining': 0,
+            'planned_start': None,
+            'planned_end': None
+        }), 500
+
 @app.route('/api/adjust_power', methods=['POST'])
 def api_adjust_power():
     """Adjust charging power during active charging (v0.2.0)"""
@@ -614,6 +633,7 @@ def update_charging_plan():
             app_state['charging_plan']['planned_start'] = charge_start.isoformat()
             app_state['charging_plan']['planned_end'] = charge_end.isoformat()
             app_state['charging_plan']['last_calculated'] = datetime.now().isoformat()
+            app_state['charging_plan']['target_soc'] = max_soc
 
             add_log('INFO', f'✓ Ladeplan berechnet: Start {charge_start.strftime("%d.%m. %H:%M")} - Ende {charge_end.strftime("%d.%m. %H:%M")}')
 
@@ -639,6 +659,127 @@ def update_charging_plan():
     except Exception as e:
         logger.error(f"Error updating charging plan: {e}", exc_info=True)
         add_log('ERROR', f'Fehler bei Ladeplan-Berechnung: {str(e)}')
+
+
+def get_charging_status_explanation():
+    """Generate human-readable explanation of charging status (v0.3.6)"""
+    try:
+        # Get current values
+        current_soc = app_state['battery']['soc']
+        min_soc = config.get('auto_safety_soc', 20)
+        max_soc = config.get('auto_charge_below_soc', 95)
+        pv_threshold = config.get('auto_pv_threshold', 5.0)
+
+        # Get PV forecast
+        pv_remaining = 0
+        if ha_client:
+            for roof in ['roof1', 'roof2']:
+                sensor = config.get(f'pv_remaining_today_{roof}')
+                if sensor:
+                    remaining = ha_client.get_state(sensor)
+                    if remaining and remaining not in ['unknown', 'unavailable']:
+                        pv_remaining += float(remaining)
+
+        # Get planned times
+        planned_start = None
+        planned_end = None
+        target_soc = max_soc
+        if app_state['charging_plan'].get('planned_start'):
+            planned_start = datetime.fromisoformat(app_state['charging_plan']['planned_start'])
+            planned_end = datetime.fromisoformat(app_state['charging_plan']['planned_end'])
+            target_soc = app_state['charging_plan'].get('target_soc', max_soc)
+
+        now = datetime.now().astimezone()
+
+        # Check conditions
+        conditions = {
+            'soc_below_safety': {
+                'fulfilled': current_soc < min_soc,
+                'label': f'SOC unter Sicherheitsminimum ({current_soc:.0f}% < {min_soc}%)',
+                'priority': 1
+            },
+            'battery_full': {
+                'fulfilled': current_soc >= max_soc,
+                'label': f'Batterie bereits voll ({current_soc:.0f}% ≥ {max_soc}%)',
+                'priority': 2
+            },
+            'pv_sufficient': {
+                'fulfilled': pv_remaining > pv_threshold,
+                'label': f'Ausreichend PV erwartet ({pv_remaining:.1f} kWh > {pv_threshold:.1f} kWh)',
+                'priority': 3
+            },
+            'time_reached': {
+                'fulfilled': planned_start and now >= planned_start,
+                'label': f'Geplante Ladezeit erreicht' if planned_start else 'Keine Ladezeit geplant',
+                'priority': 4
+            },
+            'has_plan': {
+                'fulfilled': planned_start is not None,
+                'label': 'Ladeplan vorhanden',
+                'priority': 5
+            }
+        }
+
+        # Determine main explanation
+        explanation = ""
+        will_charge = False
+
+        if current_soc < min_soc:
+            # Safety charging
+            explanation = f"⚡ Der Speicher wird SOFORT geladen, weil der SOC ({current_soc:.0f}%) unter dem Sicherheitsminimum von {min_soc}% liegt."
+            will_charge = True
+
+        elif current_soc >= max_soc:
+            # Already full
+            explanation = f"✅ Der Speicher wird nicht geladen, weil er bereits bei {current_soc:.0f}% liegt (Ziel: {max_soc}%)."
+            will_charge = False
+
+        elif pv_remaining > pv_threshold:
+            # Sufficient PV
+            explanation = f"☀️ Der Speicher wird nicht aus dem Netz geladen, weil der prognostizierte Solarertrag mit {pv_remaining:.1f} kWh über dem Schwellwert von {pv_threshold:.1f} kWh liegt."
+            will_charge = False
+
+        elif planned_start and now >= planned_start:
+            # Planned time reached
+            if planned_end:
+                explanation = f"🔋 Der Speicher wird geladen, sodass er bis {planned_end.strftime('%H:%M')} Uhr bei {target_soc}% ist."
+            else:
+                explanation = f"🔋 Der Speicher wird jetzt geladen bis {target_soc}% erreicht sind."
+            will_charge = True
+
+        elif planned_start and now < planned_start:
+            # Waiting for planned time
+            explanation = f"⏳ Der Speicher wird ab {planned_start.strftime('%H:%M')} Uhr geladen, sodass er bis {planned_end.strftime('%H:%M')} Uhr bei {target_soc}% ist."
+            will_charge = False
+
+        else:
+            # No plan
+            explanation = f"⏸️ Der Speicher wird nicht geladen. Es wurde kein optimaler Ladezeitpunkt gefunden (Preise bleiben günstig)."
+            will_charge = False
+
+        return {
+            'explanation': explanation,
+            'will_charge': will_charge,
+            'conditions': conditions,
+            'current_soc': current_soc,
+            'target_soc': max_soc,
+            'pv_remaining': pv_remaining,
+            'planned_start': planned_start.strftime('%H:%M') if planned_start else None,
+            'planned_end': planned_end.strftime('%H:%M') if planned_end else None
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating charging status explanation: {e}")
+        return {
+            'explanation': '❌ Fehler beim Ermitteln des Ladestatus',
+            'will_charge': False,
+            'conditions': {},
+            'current_soc': 0,
+            'target_soc': 0,
+            'pv_remaining': 0,
+            'planned_start': None,
+            'planned_end': None
+        }
 
 
 def controller_loop():
