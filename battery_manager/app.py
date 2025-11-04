@@ -51,6 +51,13 @@ def detect_ingress_prefix():
                 request.environ['SCRIPT_NAME'] = prefix
                 request.environ['PATH_INFO'] = new_path
 
+# Context processor to inject base_path into all templates
+@app.context_processor
+def inject_base_path():
+    """Inject base_path into all templates for Ingress support"""
+    base_path = request.environ.get('SCRIPT_NAME', '')
+    return dict(base_path=base_path)
+
 app.config['SECRET_KEY'] = os.urandom(24)
 # Disable template caching to ensure changes are reflected immediately
 app.config['TEMPLATES_AUTO_RELOAD'] = True

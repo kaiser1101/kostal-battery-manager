@@ -187,8 +187,8 @@
 
 {% block scripts %}
 <script>
-// Get base path from current URL for API calls
-const basePath = window.location.pathname.replace(/\/[^\/]*$/, '');
+// Use BASE_PATH from base.html for API calls
+const basePath = BASE_PATH;
 
 let selectedFile = null;
 let tableData = [];
