@@ -265,7 +265,7 @@ updateChargingStatus(); // v0.3.6
 
 // v0.3.6 - Update charging status explanation
 function updateChargingStatus() {
-    fetch('api/charging_status')
+    fetch(BASE_PATH + '/api/charging_status')
         .then(response => response.json())
         .then(data => {
             // Update explanation text
@@ -320,7 +320,7 @@ function updateChargingStatus() {
 setInterval(updateChargingStatus, 5000);
 
 function updateStatus() {
-    fetch('api/status')
+    fetch(BASE_PATH + '/api/status')
         .then(response => response.json())
         .then(data => {
             // Update connection status
@@ -408,11 +408,11 @@ function updateStatus() {
 
 function startCharging() {
     const power = document.getElementById('charge-power').value;
-    
+
     if (confirm(`Batterie mit ${power}W laden?`)) {
         showLoading('Starte Ladung...');
-        
-        fetch('api/control', {
+
+        fetch(BASE_PATH + '/api/control', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({action: 'start_charging', power: parseInt(power)})
@@ -434,8 +434,8 @@ function startCharging() {
 function stopCharging() {
     if (confirm('Ladung stoppen und zurück zur internen Steuerung?')) {
         showLoading('Stoppe Ladung...');
-        
-        fetch('api/control', {
+
+        fetch(BASE_PATH + '/api/control', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({action: 'stop_charging'})
@@ -457,7 +457,7 @@ function stopCharging() {
 function autoMode() {
     showLoading('Aktiviere Automatik...');
 
-    fetch('api/control', {
+    fetch(BASE_PATH + '/api/control', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({action: 'auto_mode'})
@@ -477,7 +477,7 @@ function autoMode() {
 
 // v0.2.5 - Toggle automation on/off
 function toggleAutomation(enabled) {
-    fetch('api/control', {
+    fetch(BASE_PATH + '/api/control', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({action: 'toggle_automation', enabled: enabled})
@@ -498,12 +498,12 @@ function toggleAutomation(enabled) {
 // v0.2.0: Adjust power during active charging
 function adjustPowerIfCharging(power) {
     // Check if currently charging
-    fetch('api/status')
+    fetch(BASE_PATH + '/api/status')
         .then(response => response.json())
         .then(data => {
             if (data.inverter.mode === 'manual_charging' || data.inverter.mode === 'auto_charging') {
                 // Adjust power
-                fetch('api/adjust_power', {
+                fetch(BASE_PATH + '/api/adjust_power', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({power: parseInt(power)})
@@ -529,7 +529,7 @@ function adjustPowerIfCharging(power) {
 function recalculatePlan() {
     showLoading('Berechne Ladeplan...');
 
-    fetch('api/recalculate_plan', {
+    fetch(BASE_PATH + '/api/recalculate_plan', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({})
@@ -557,7 +557,7 @@ function recalculatePlan() {
 
 // v0.4.0 - Update consumption learning statistics
 function updateLearningStats() {
-    fetch('api/consumption_learning')
+    fetch(BASE_PATH + '/api/consumption_learning')
         .then(response => response.json())
         .then(data => {
             if (data.enabled && data.statistics) {
@@ -735,7 +735,7 @@ function initCharts() {
 }
 
 function updatePriceChart() {
-    fetch('api/tibber_price_chart')
+    fetch(BASE_PATH + '/api/tibber_price_chart')
         .then(response => response.json())
         .then(data => {
             if (data.success && priceChart) {
@@ -760,7 +760,7 @@ function updatePriceChart() {
 }
 
 function updateConsumptionChart() {
-    fetch('api/consumption_forecast_chart')
+    fetch(BASE_PATH + '/api/consumption_forecast_chart')
         .then(response => response.json())
         .then(data => {
             if (data.success && consumptionChart) {
