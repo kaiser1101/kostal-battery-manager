@@ -199,13 +199,15 @@ try:
 
         consumption_learner = ConsumptionLearner(db_path, learning_days, default_fallback)
 
-        # Clean up any duplicate entries from before timestamp rounding fix
-        try:
-            deleted = consumption_learner.cleanup_duplicates()
-            if deleted > 0:
-                logger.info(f"Cleaned up {deleted} duplicate entries on startup")
-        except Exception as e:
-            logger.error(f"Error cleaning up duplicates: {e}")
+        # DISABLED: Cleanup duplicates - has critical bug that deletes all data
+        # The duplicate handling is now done in queries instead (see get_hourly_profile, etc.)
+        # TODO: Fix cleanup function and re-enable after thorough testing
+        # try:
+        #     deleted = consumption_learner.cleanup_duplicates()
+        #     if deleted > 0:
+        #         logger.info(f"Cleaned up {deleted} duplicate entries on startup")
+        # except Exception as e:
+        #     logger.error(f"Error cleaning up duplicates: {e}")
 
         # Load manual profile if provided
         manual_profile = config.get('manual_load_profile')
