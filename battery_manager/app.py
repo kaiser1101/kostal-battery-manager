@@ -8,7 +8,7 @@ import json
 import logging
 import threading
 from datetime import datetime
-from flask import Flask, render_template, jsonify, request, redirect, url_for
+from flask import Flask, render_template, jsonify, request, redirect, url_for, make_response
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -266,15 +266,8 @@ def logs_page():
 
 @app.route('/consumption_import')
 def consumption_import_page():
-    """Consumption data import page (v0.5.0) - Standalone HTML"""
-    # Read and return the standalone HTML file directly
-    try:
-        template_path = os.path.join(app.template_folder, 'consumption_import.html')
-        with open(template_path, 'r', encoding='utf-8') as f:
-            return f.read()
-    except Exception as e:
-        logger.error(f"Error loading consumption_import.html: {e}")
-        return f"<h1>Error loading page</h1><p>{str(e)}</p>", 500
+    """Consumption data import page (v0.5.0)"""
+    return render_template('consumption_import.html')
 
 @app.route('/test')
 def test_page():
