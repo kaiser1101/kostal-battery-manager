@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 # Initialize Flask app with correct paths
 app = Flask(__name__,
             static_folder='static',
-            static_url_path='/static',
             template_folder='templates')
 
 # Configure for Home Assistant Ingress support
