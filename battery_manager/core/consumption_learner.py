@@ -562,6 +562,37 @@ class ConsumptionLearner:
             """, (cutoff.isoformat(),))
             conn.commit()
 
+    def cleanup_duplicates(self):
+        """
+        Remove duplicate entries for the same date+hour combination.
+        Keeps the best entry: prefer learned (is_manual=0) over imported (is_manual=1),
+        and latest created_at as tiebreaker.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            # Find and delete duplicates, keeping only the best entry per date+hour
+            cursor = conn.execute("""
+                DELETE FROM hourly_consumption
+                WHERE rowid NOT IN (
+                    SELECT MIN(rowid)
+                    FROM (
+                        SELECT rowid,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY DATE(timestamp), hour
+                                   ORDER BY is_manual ASC, created_at DESC, timestamp DESC
+                               ) as rn
+                        FROM hourly_consumption
+                    )
+                    WHERE rn = 1
+                )
+            """)
+            deleted = cursor.rowcount
+            conn.commit()
+
+            if deleted > 0:
+                logger.info(f"Cleaned up {deleted} duplicate entries")
+
+            return deleted
+
     def clear_all_manual_data(self):
         """Clear all manually imported data (keeps automatically learned data)"""
         with sqlite3.connect(self.db_path) as conn:
@@ -591,10 +622,19 @@ class ConsumptionLearner:
             Average consumption in kWh for that hour
         """
         with sqlite3.connect(self.db_path) as conn:
+            # Handle duplicates: only use best entry per date+hour
             cursor = conn.execute("""
                 SELECT AVG(consumption_kwh) as avg_consumption
-                FROM hourly_consumption
-                WHERE hour = ?
+                FROM (
+                    SELECT DATE(timestamp) as date, hour, consumption_kwh, is_manual, created_at,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY DATE(timestamp), hour
+                               ORDER BY is_manual ASC, created_at DESC
+                           ) as rn
+                    FROM hourly_consumption
+                    WHERE hour = ?
+                )
+                WHERE rn = 1
             """, (hour,))
 
             result = cursor.fetchone()
@@ -614,9 +654,21 @@ class ConsumptionLearner:
         profile = {}
 
         with sqlite3.connect(self.db_path) as conn:
+            # For each hour, calculate average consumption
+            # Handle duplicates by selecting best entry per date+hour:
+            # - Prefer learned (is_manual=0) over imported (is_manual=1)
+            # - Use latest created_at as tiebreaker
             cursor = conn.execute("""
                 SELECT hour, AVG(consumption_kwh) as avg_consumption
-                FROM hourly_consumption
+                FROM (
+                    SELECT DATE(timestamp) as date, hour, consumption_kwh, is_manual, created_at,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY DATE(timestamp), hour
+                               ORDER BY is_manual ASC, created_at DESC
+                           ) as rn
+                    FROM hourly_consumption
+                )
+                WHERE rn = 1
                 GROUP BY hour
                 ORDER BY hour
             """)
