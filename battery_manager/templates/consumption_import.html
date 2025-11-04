@@ -163,6 +163,9 @@
 
 {% block scripts %}
 <script>
+// Get base path from current URL for API calls
+const basePath = window.location.pathname.replace(/\/[^\/]*$/, '');
+
 let selectedFile = null;
 let tableData = [];
 
@@ -254,7 +257,7 @@ function uploadCSV() {
     const formData = new FormData();
     formData.append('file', selectedFile);
 
-    fetch('{{ url_for("api_consumption_import_csv") }}', {
+    fetch(basePath + '/api/consumption_import_csv', {
         method: 'POST',
         body: formData
     })
@@ -292,7 +295,7 @@ function uploadCSV() {
 function loadData() {
     showLoading('Lade Daten...');
 
-    fetch('{{ url_for("api_consumption_data_get") }}')
+    fetch(basePath + '/api/consumption_data')
     .then(response => response.json())
     .then(data => {
         hideLoading();
@@ -393,7 +396,7 @@ function saveData() {
 
     showLoading('Speichere Daten...');
 
-    fetch('{{ url_for("api_consumption_data_post") }}', {
+    fetch(basePath + '/api/consumption_data', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
