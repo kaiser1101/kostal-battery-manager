@@ -812,7 +812,7 @@ def api_consumption_forecast_chart():
                 'error': 'Consumption learner not available'
             }), 500
 
-        # Get hourly profile
+        # Get hourly profile (forecast)
         profile = consumption_learner.get_hourly_profile()
 
         if not profile:
@@ -821,18 +821,68 @@ def api_consumption_forecast_chart():
                 'error': 'No consumption data available'
             }), 500
 
+        # Get actual consumption for today
+        actual_consumption = []
+        if ha_client:
+            try:
+                entity_id = config.get('home_consumption_sensor')
+                if entity_id:
+                    # Get today's history
+                    from datetime import datetime, timedelta
+                    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                    history = ha_client.get_history(entity_id, today_start, datetime.now())
+
+                    # Group by hour and calculate averages
+                    hourly_actual = {}
+                    for entry in history:
+                        try:
+                            timestamp_str = entry.get('last_changed') or entry.get('last_updated')
+                            if not timestamp_str:
+                                continue
+
+                            timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                            state = entry.get('state')
+                            if state in ['unknown', 'unavailable', None]:
+                                continue
+
+                            value = float(state)
+                            if value < 0 or value > 50000:
+                                continue
+
+                            # Convert W to kW
+                            if value > 50:
+                                value = value / 1000
+
+                            hour = timestamp.hour
+                            if hour not in hourly_actual:
+                                hourly_actual[hour] = []
+                            hourly_actual[hour].append(value)
+                        except:
+                            continue
+
+                    # Calculate averages per hour
+                    for hour in range(24):
+                        if hour in hourly_actual and len(hourly_actual[hour]) > 0:
+                            avg = sum(hourly_actual[hour]) / len(hourly_actual[hour])
+                            actual_consumption.append(round(avg, 2))
+                        else:
+                            actual_consumption.append(None)  # No data for this hour yet
+            except Exception as e:
+                logger.error(f"Error getting actual consumption: {e}")
+
         # Format for chart: labels (hours) and data (consumption in kW)
         hours = []
-        consumption = []
+        forecast_consumption = []
 
         for hour in range(24):
             hours.append(f"{hour:02d}:00")
-            consumption.append(round(profile.get(hour, 0), 2))
+            forecast_consumption.append(round(profile.get(hour, 0), 2))
 
         return jsonify({
             'success': True,
             'labels': hours,
-            'consumption': consumption,
+            'forecast': forecast_consumption,
+            'actual': actual_consumption,
             'current_hour': datetime.now().hour
         })
 

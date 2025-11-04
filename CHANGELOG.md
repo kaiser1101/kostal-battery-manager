@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.6.4] - 2025-11-04
+
+### Changed
+- **📊 Verbesserte Grafiken** - Optimierte Darstellung nach Benutzerwunsch
+- **Tibber Preise als Balkendiagramm** - Besser erkennbare Preisunterschiede
+  - Aktuelle Stunde rot hervorgehoben
+  - Alle anderen Balken in Gelb
+- **Verbrauchsdiagramm mit zwei Linien**:
+  - **Gelbe gefüllte Linie**: Prognostizierter Verbrauch (basierend auf gelernten Daten)
+  - **Blaue Linie**: Tatsächlicher Verbrauch heute (Live-Daten aus Home Assistant)
+  - Beide Linien im gleichen Diagramm für direkten Vergleich
+- **Tatsächlicher Verbrauch heute** wird automatisch aus Home Assistant abgerufen
+  - Nutzt `home_consumption_sensor` Konfiguration
+  - Zeigt nur bereits vergangene Stunden
+  - Automatische Watt→kW Konvertierung
+  - Aktualisierung alle 5 Minuten
+
+### Technical
+- API-Endpunkt `/api/consumption_forecast_chart` erweitert
+  - Liefert jetzt sowohl `forecast` als auch `actual` Daten
+  - Ruft History-Daten für heute ab
+  - Gruppiert nach Stunden und berechnet Durchschnitte
+- Chart-Typ für Preise von `line` zu `bar` geändert
+- Chart-Typ für Verbrauch von `bar` zu `line` mit zwei Datasets geändert
+- `spanGaps: true` für tatsächlichen Verbrauch (verbindet Linie auch bei fehlenden Stunden)
+
+### Why This Matters
+- **Besserer Vergleich** - Prognose vs. Realität direkt sichtbar
+- **Genauere Planung** - Sehe wie genau deine Prognosen sind
+- **Optimierung möglich** - Erkenne Abweichungen und passe dein Verhalten an
+- **Live-Feedback** - Aktueller Verbrauch zeigt wie der Tag verläuft
+
+### Example
+Verbrauchsdiagramm zeigt:
+- 06:00 Uhr: Prognose 2.0 kW (gelb), Tatsächlich 1.8 kW (blau) → Unter Prognose!
+- 12:00 Uhr: Prognose 1.2 kW (gelb), Tatsächlich 1.5 kW (blau) → Über Prognose!
+- 18:00 Uhr: Prognose 2.0 kW (gelb), noch keine Daten (blau nicht sichtbar)
+
+→ Du siehst sofort ob du mehr oder weniger verbrauchst als erwartet!
+
 ## [0.6.3] - 2025-11-04
 
 ### Added
