@@ -199,6 +199,9 @@
         <div style="position: relative; height: 300px; padding: 1rem;">
             <canvas id="consumptionChart"></canvas>
         </div>
+        <div id="forecast-accuracy" style="padding: 0.5rem 1rem; text-align: center; font-size: 0.95rem; opacity: 0.8;">
+            <!-- Accuracy will be shown here -->
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -768,6 +771,29 @@ function updateConsumptionChart() {
                 consumptionChart.data.datasets[1].data = data.actual;
 
                 consumptionChart.update();
+
+                // Update accuracy display
+                const accuracyDiv = document.getElementById('forecast-accuracy');
+                if (accuracyDiv && data.accuracy !== null && data.accuracy !== undefined) {
+                    const accuracy = data.accuracy;
+                    const hours = data.accuracy_hours || 0;
+
+                    // Color coding based on accuracy
+                    let color = '#4CAF50';  // Green for good accuracy
+                    if (accuracy < 70) color = '#FF9800';  // Orange for medium
+                    if (accuracy < 50) color = '#f44336';  // Red for poor
+
+                    accuracyDiv.innerHTML = `
+                        <span style="color: ${color}; font-weight: bold;">
+                            Prognose-Genauigkeit: ${accuracy.toFixed(1)}%
+                        </span>
+                        <span style="opacity: 0.6; margin-left: 1rem;">
+                            (${hours} ${hours === 1 ? 'Stunde' : 'Stunden'} verglichen)
+                        </span>
+                    `;
+                } else if (accuracyDiv) {
+                    accuracyDiv.innerHTML = '<span style="opacity: 0.5;">Noch nicht genügend Daten für Genauigkeitsberechnung</span>';
+                }
             }
         })
         .catch(error => {

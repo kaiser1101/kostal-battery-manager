@@ -921,12 +921,39 @@ def api_consumption_forecast_chart():
             hours.append(f"{hour:02d}:00")
             forecast_consumption.append(round(profile.get(hour, 0), 2))
 
+        # Calculate forecast accuracy for completed hours
+        accuracy = None
+        accuracy_hours = 0
+        if actual_consumption and forecast_consumption:
+            errors = []
+            now = datetime.now()
+            current_hour = now.hour
+
+            for hour in range(current_hour):  # Only completed hours
+                actual = actual_consumption[hour] if hour < len(actual_consumption) else None
+                forecast = forecast_consumption[hour] if hour < len(forecast_consumption) else None
+
+                # Skip if either value is missing or forecast is too small (division by zero)
+                if actual is not None and forecast is not None and forecast > 0.01:
+                    # Calculate percentage error
+                    percentage_error = abs(actual - forecast) / forecast * 100
+                    errors.append(percentage_error)
+
+            if errors:
+                # Mean Absolute Percentage Error (MAPE)
+                mape = sum(errors) / len(errors)
+                # Convert to accuracy (100% = perfect, 0% = completely wrong)
+                accuracy = max(0, 100 - mape)
+                accuracy_hours = len(errors)
+
         return jsonify({
             'success': True,
             'labels': hours,
             'forecast': forecast_consumption,
             'actual': actual_consumption,
-            'current_hour': datetime.now().astimezone().hour
+            'current_hour': datetime.now().astimezone().hour,
+            'accuracy': round(accuracy, 1) if accuracy is not None else None,
+            'accuracy_hours': accuracy_hours
         })
 
     except Exception as e:
