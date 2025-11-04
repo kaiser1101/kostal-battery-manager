@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.5.2] - 2025-11-04
+
+### Fixed
+- **🔗 Dashboard Import-Link** - Verwendung von url_for() für korrektes Ingress-Routing
+- Import-Link im Dashboard verwendet nun Flask url_for('consumption_import_page')
+- Statt hardcodiertem '/consumption_import' nun dynamische URL-Generierung
+- Gewährleistet korrektes Routing durch Home Assistant Ingress-Proxy
+
+### Technical
+- Änderung in dashboard.html: href="{{ url_for('consumption_import_page') }}"
+- Funktioniert mit allen Ingress-URL-Präfixen
+
+## [0.5.1] - 2025-11-04
+
+### Fixed
+- **🔧 Ingress-Kompatibilität für Import-Seite** - Konvertierung zu Standalone-HTML
+- Entfernung von Jinja2-Template-Vererbung ({% extends %}, {% block %})
+- Alle CSS-Styles inline in `<head>` eingebettet
+- JavaScript inline integriert zur Vermeidung von Static-File-Problemen
+- Behebt weißen Bildschirm bei Zugriff über Home Assistant Ingress
+- Relative Pfade für "Zurück zum Dashboard" Link
+
+### Technical
+- Template consumption_import.html vollständig eigenständig
+- Keine Abhängigkeiten von base.html oder static files
+- Funktioniert korrekt mit HA Ingress URL-Präfix
+
 ## [0.5.0] - 2025-11-04
 
 ### Added
