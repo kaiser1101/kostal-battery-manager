@@ -573,7 +573,7 @@ class ConsumptionLearner:
             cursor = conn.execute("""
                 DELETE FROM hourly_consumption
                 WHERE rowid NOT IN (
-                    SELECT MIN(rowid)
+                    SELECT rowid
                     FROM (
                         SELECT rowid,
                                ROW_NUMBER() OVER (
