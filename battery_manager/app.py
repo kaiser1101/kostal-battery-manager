@@ -269,6 +269,40 @@ def consumption_import_page():
     """Consumption data import page (v0.5.0)"""
     return render_template('consumption_import.html')
 
+@app.route('/api/debug_consumption_all')
+def debug_consumption_all():
+    """Debug: Show all consumption data from DB"""
+    try:
+        import sqlite3
+        with sqlite3.connect(consumption_learner.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT DATE(timestamp) as date, COUNT(*) as hour_count,
+                       MIN(timestamp) as first_hour, MAX(timestamp) as last_hour
+                FROM hourly_consumption
+                GROUP BY DATE(timestamp)
+                ORDER BY date DESC
+            """)
+
+            dates = []
+            for row in cursor.fetchall():
+                dates.append({
+                    'date': row[0],
+                    'hour_count': row[1],
+                    'first_hour': row[2],
+                    'last_hour': row[3]
+                })
+
+            # Total count
+            cursor = conn.execute("SELECT COUNT(*) FROM hourly_consumption")
+            total = cursor.fetchone()[0]
+
+            return jsonify({
+                'total_hours': total,
+                'dates': dates
+            })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/debug_consumption/<date>')
 def debug_consumption(date):
     """Debug: Show raw DB data for a specific date"""
