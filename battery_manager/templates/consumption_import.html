@@ -1,8 +1,115 @@
-{% extends "base.html" %}
-
-{% block title %}Verbrauchsdaten Import - Kostal Battery Manager{% endblock %}
-
-{% block content %}
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verbrauchsdaten Import - Kostal Battery Manager</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            padding: 2rem;
+            margin: 0;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { color: #4CAF50; }
+        .card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            margin: 0.5rem;
+        }
+        .btn-primary { background: #4CAF50; color: white; }
+        .btn-secondary { background: #2196F3; color: white; }
+        .btn:hover { opacity: 0.9; }
+        pre {
+            background: rgba(0,0,0,0.3);
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        th, td {
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 0.5rem;
+            text-align: center;
+        }
+        th {
+            background: rgba(255,255,255,0.1);
+            position: sticky;
+            top: 0;
+        }
+        input {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white;
+            padding: 0.25rem;
+            text-align: center;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        .data-table th,
+        .data-table td {
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 0.5rem;
+            text-align: center;
+        }
+        .data-table th {
+            background: rgba(255,255,255,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .data-table input {
+            width: 60px;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white;
+            padding: 0.25rem;
+            text-align: center;
+        }
+        .data-table input[type="date"] {
+            width: 120px;
+        }
+        .data-table select {
+            width: 100px;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white;
+            padding: 0.25rem;
+        }
+        .btn-danger {
+            background: #f44336;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .btn-danger:hover {
+            background: #d32f2f;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
 <div class="import-page">
     <h1>📊 Verbrauchsdaten Import</h1>
 
@@ -73,67 +180,10 @@
     </div>
 
     <div class="card">
-        <h2>🏠 <a href="/">← Zurück zum Dashboard</a></h2>
+        <h2>🏠 <a href="./" style="color: #4CAF50; text-decoration: none;">← Zurück zum Dashboard</a></h2>
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<style>
-.data-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.85rem;
-}
-
-.data-table th,
-.data-table td {
-    border: 1px solid rgba(255,255,255,0.1);
-    padding: 0.5rem;
-    text-align: center;
-}
-
-.data-table th {
-    background: rgba(255,255,255,0.1);
-    position: sticky;
-    top: 0;
-    z-index: 10;
-}
-
-.data-table input {
-    width: 60px;
-    background: rgba(0,0,0,0.3);
-    border: 1px solid rgba(255,255,255,0.2);
-    color: white;
-    padding: 0.25rem;
-    text-align: center;
-}
-
-.data-table input[type="date"] {
-    width: 120px;
-}
-
-.data-table select {
-    width: 100px;
-    background: rgba(0,0,0,0.3);
-    border: 1px solid rgba(255,255,255,0.2);
-    color: white;
-    padding: 0.25rem;
-}
-
-.btn-danger {
-    background: #f44336;
-    color: white;
-    border: none;
-    padding: 0.5rem 1rem;
-    cursor: pointer;
-    border-radius: 4px;
-}
-
-.btn-danger:hover {
-    background: #d32f2f;
-}
-</style>
+</div>
 
 <script>
 let selectedFile = null;
@@ -391,4 +441,5 @@ function saveData() {
 // Initialize
 loadData();
 </script>
-{% endblock %}
+</body>
+</html>
