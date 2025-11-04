@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.5] - 2025-11-04
+
+### Fixed
+- **🎨 Template-Struktur korrigiert** - consumption_import.html verwendet jetzt base.html
+- Extends base.html wie alle anderen Seiten (dashboard, logs, etc.)
+- Konsistente Template-Struktur für korrektes Rendering im HA Ingress
+- Behebt Problem mit HA-Frontend-Overlay das die Seite überdeckte
+- Route nutzt wieder render_template() statt direktes File-Reading
+
+### Technical
+- Template-Struktur: `{% extends "base.html" %}` + `{% block content %}`
+- Inline-Styles im content-Block für Import-spezifisches Styling
+- Verwendet url_for() für alle API-Routen und Links
+- Funktioniert nun konsistent mit HA Ingress-Architektur
+
 ## [0.5.4] - 2025-11-04
 
 ### Fixed
