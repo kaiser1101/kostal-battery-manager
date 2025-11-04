@@ -841,6 +841,9 @@ def api_consumption_forecast_chart():
                                 continue
 
                             timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                            # Convert to local timezone to get correct hour
+                            local_timestamp = timestamp.astimezone()
+
                             state = entry.get('state')
                             if state in ['unknown', 'unavailable', None]:
                                 continue
@@ -853,7 +856,13 @@ def api_consumption_forecast_chart():
                             if value > 50:
                                 value = value / 1000
 
-                            hour = timestamp.hour
+                            hour = local_timestamp.hour
+
+                            # Skip future hours (could happen due to timezone issues)
+                            current_hour = datetime.now().hour
+                            if hour > current_hour:
+                                continue
+
                             if hour not in hourly_actual:
                                 hourly_actual[hour] = []
                             hourly_actual[hour].append(value)
@@ -861,12 +870,17 @@ def api_consumption_forecast_chart():
                             continue
 
                     # Calculate averages per hour
+                    current_hour = datetime.now().hour
                     for hour in range(24):
                         if hour in hourly_actual and len(hourly_actual[hour]) > 0:
                             avg = sum(hourly_actual[hour]) / len(hourly_actual[hour])
                             actual_consumption.append(round(avg, 2))
+                        elif hour <= current_hour:
+                            # Current or past hour with no data
+                            actual_consumption.append(None)
                         else:
-                            actual_consumption.append(None)  # No data for this hour yet
+                            # Future hour - don't show any line
+                            actual_consumption.append(None)
             except Exception as e:
                 logger.error(f"Error getting actual consumption: {e}")
 
