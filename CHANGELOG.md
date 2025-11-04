@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.2] - 2025-11-04
+
+### Fixed
+- **🔧 UI Display Fix** - "undefined Tage importiert" zeigt jetzt die korrekte Anzahl
+- Import-Response enthält jetzt `imported_days` Feld in allen Funktionen
+- CSV-Import und HA-Import zeigen beide die importierten Tage korrekt an
+- Alle Error-Responses enthalten jetzt konsistent alle Felder
+
+### Technical
+- `import_from_home_assistant()` fügt `imported_days` zur Response hinzu
+- `import_from_csv()` fügt `imported_days` zur Response hinzu
+- Alle Error-Responses enthalten: `imported_hours`, `imported_days`, `skipped_days`
+- Konsistente Response-Struktur für bessere UI-Integration
+
 ## [0.6.1] - 2025-11-04
 
 ### Fixed

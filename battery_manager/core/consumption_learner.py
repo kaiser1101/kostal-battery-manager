@@ -282,13 +282,16 @@ class ConsumptionLearner:
                     'success': False,
                     'error': 'No valid data found in CSV',
                     'imported_hours': 0,
+                    'imported_days': 0,
                     'skipped_days': 0
                 }
 
             logger.info(f"Successfully parsed {len(daily_data)} days from CSV")
 
             # Import the parsed data
-            return self.import_detailed_history(daily_data)
+            result = self.import_detailed_history(daily_data)
+            result['imported_days'] = len(daily_data)
+            return result
 
         except Exception as e:
             logger.error(f"Error parsing CSV: {e}")
@@ -296,6 +299,7 @@ class ConsumptionLearner:
                 'success': False,
                 'error': str(e),
                 'imported_hours': 0,
+                'imported_days': 0,
                 'skipped_days': 0
             }
 
@@ -328,6 +332,7 @@ class ConsumptionLearner:
                     'success': False,
                     'error': f'No history data received from Home Assistant for entity {entity_id}',
                     'imported_hours': 0,
+                    'imported_days': 0,
                     'skipped_days': 0,
                     'history_entries': 0
                 }
@@ -408,6 +413,7 @@ class ConsumptionLearner:
                     'success': False,
                     'error': 'No valid data points found in history after filtering',
                     'imported_hours': 0,
+                    'imported_days': 0,
                     'skipped_days': 0,
                     'history_entries': len(history)
                 }
@@ -475,6 +481,7 @@ class ConsumptionLearner:
                     'success': False,
                     'error': f'No complete days found in history data. Checked {len(daily_data_dict)} days, all had less than 3 hours of data. Check if sensor {entity_id} is logging data correctly.',
                     'imported_hours': 0,
+                    'imported_days': 0,
                     'skipped_days': len(daily_data_dict),
                     'history_entries': len(history)
                 }
@@ -485,6 +492,7 @@ class ConsumptionLearner:
             result = self.import_detailed_history(daily_data)
             # Add additional info
             result['history_entries'] = len(history)
+            result['imported_days'] = len(daily_data)
             return result
 
         except Exception as e:
@@ -493,6 +501,7 @@ class ConsumptionLearner:
                 'success': False,
                 'error': str(e),
                 'imported_hours': 0,
+                'imported_days': 0,
                 'skipped_days': 0
             }
 
