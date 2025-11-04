@@ -1,7 +1,7 @@
 name: Kostal Battery Manager
-version: "0.3.7"
+version: "0.4.0"
 slug: kostal_battery_manager
-description: "Intelligente Batteriesteuerung für Kostal Plenticore Plus mit Tibber-Optimierung"
+description: "Intelligente Batteriesteuerung für Kostal Plenticore Plus mit Tibber-Optimierung und Verbrauchslernen"
 url: "https://github.com/SvenSteuer/kostal-battery-manager"
 arch:
   - aarch64
@@ -63,6 +63,37 @@ options:
   tibber_price_threshold_1h: 8  # Prozent: Preisanstieg zur vorherigen Stunde
   tibber_price_threshold_3h: 8  # Prozent: 3h Block Vergleich
   charge_duration_per_10_percent: 18  # Minuten pro 10% SOC
+  # v0.4.0 - Consumption Learning & Optimization
+  enable_consumption_learning: true
+  learning_period_days: 28  # 4 Wochen Lernzeitraum
+  home_consumption_sensor: "sensor.home_energy_consumption"
+  # Manuelles Lastprofil (initial, wird schrittweise überschrieben)
+  # Stündlicher Verbrauch in kW (Durchschnitt über die Stunde)
+  manual_load_profile:
+    "0": 0.2
+    "1": 0.2
+    "2": 0.15
+    "3": 0.15
+    "4": 0.15
+    "5": 0.2
+    "6": 0.5
+    "7": 2.0
+    "8": 1.5
+    "9": 1.0
+    "10": 0.8
+    "11": 0.9
+    "12": 1.2
+    "13": 0.8
+    "14": 0.7
+    "15": 0.6
+    "16": 0.7
+    "17": 1.5
+    "18": 2.0
+    "19": 1.8
+    "20": 1.2
+    "21": 0.8
+    "22": 0.5
+    "23": 0.3
   # OPTIONAL: input_datetime Helfer für HA-Integration
   # Diese müssen in Home Assistant erstellt werden:
   # In configuration.yaml:
@@ -122,6 +153,12 @@ schema:
   tibber_price_threshold_1h: int(1,50)
   tibber_price_threshold_3h: int(1,50)
   charge_duration_per_10_percent: int(5,60)
+
+  # v0.4.0 - Consumption Learning
+  enable_consumption_learning: bool
+  learning_period_days: int(7,90)
+  home_consumption_sensor: str?
+
   input_datetime_planned_charge_end: str?
   input_datetime_planned_charge_start: str?
 

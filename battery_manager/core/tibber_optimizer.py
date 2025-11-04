@@ -18,6 +18,12 @@ class TibberOptimizer:
         self.threshold_1h = config.get('tibber_price_threshold_1h', 8) / 100
         self.threshold_3h = config.get('tibber_price_threshold_3h', 8) / 100
         self.charge_duration_per_10 = config.get('charge_duration_per_10_percent', 18)
+        self.consumption_learner = None  # v0.4.0
+
+    def set_consumption_learner(self, learner):
+        """Set consumption learner for advanced optimization (v0.4.0)"""
+        self.consumption_learner = learner
+        logger.info("Consumption learner integrated into optimizer")
 
     def find_optimal_charge_end_time(self, prices: List[Dict]) -> Optional[datetime]:
         """
@@ -113,6 +119,50 @@ class TibberOptimizer:
 
         return charge_start
 
+    def predict_energy_deficit(self,
+                              pv_remaining: float,
+                              current_hour: int = None) -> tuple[bool, float]:
+        """
+        Predicts if there will be an energy deficit based on consumption learning.
+
+        Args:
+            pv_remaining: Expected PV production remaining today (kWh)
+            current_hour: Current hour (0-23), defaults to now
+
+        Returns:
+            (has_deficit: bool, deficit_kwh: float)
+        """
+        if not self.consumption_learner:
+            # Fallback to simple threshold
+            return pv_remaining < 5, max(0, 5 - pv_remaining)
+
+        try:
+            if current_hour is None:
+                current_hour = datetime.now().hour
+
+            # Predict consumption until evening (18:00)
+            # This covers the critical morning period before PV ramps up
+            target_hour = 18
+            if current_hour >= target_hour:
+                target_hour = 23  # Rest of day
+
+            predicted_consumption = self.consumption_learner.predict_consumption_until(target_hour)
+
+            # Simple deficit: consumption > PV remaining
+            deficit = predicted_consumption - pv_remaining
+            has_deficit = deficit > 0.5  # At least 0.5 kWh gap
+
+            logger.debug(f"Energy balance: PV={pv_remaining:.1f} kWh, "
+                        f"Consumption={predicted_consumption:.1f} kWh, "
+                        f"Deficit={deficit:.1f} kWh")
+
+            return has_deficit, max(0, deficit)
+
+        except Exception as e:
+            logger.error(f"Error predicting energy deficit: {e}")
+            # Fallback
+            return pv_remaining < 5, max(0, 5 - pv_remaining)
+
     def should_charge_now(self,
                          planned_start: Optional[datetime],
                          current_soc: float,
@@ -136,12 +186,15 @@ class TibberOptimizer:
         if current_soc >= max_soc:
             return False, f"Battery full ({current_soc}% >= {max_soc}%)"
 
-        # Genug PV erwartet - nicht aus Netz laden
-        if pv_remaining > 5:  # mehr als 5 kWh PV erwartet
-            return False, f"Sufficient PV expected ({pv_remaining:.1f} kWh)"
+        # v0.4.0 - Check energy deficit based on consumption learning
+        has_deficit, deficit_kwh = self.predict_energy_deficit(pv_remaining)
+
+        if not has_deficit:
+            # Sufficient energy expected (PV covers consumption)
+            return False, f"Energy balance positive (PV {pv_remaining:.1f} kWh covers consumption)"
 
         # Geplanter Ladezeitpunkt erreicht?
         if planned_start and now >= planned_start:
-            return True, f"Planned charging time reached"
+            return True, f"Planned charging time reached (deficit: {deficit_kwh:.1f} kWh)"
 
-        return False, "Waiting for optimal charging window"
+        return False, f"Waiting for optimal charging window (deficit: {deficit_kwh:.1f} kWh)"

@@ -150,6 +150,7 @@ try:
         from .core.modbus_client import ModbusClient
         from .core.ha_client import HomeAssistantClient
         from .core.tibber_optimizer import TibberOptimizer
+        from .core.consumption_learner import ConsumptionLearner
     except ImportError:
         # Fall back to absolute import
         import sys
@@ -158,6 +159,7 @@ try:
         from core.modbus_client import ModbusClient
         from core.ha_client import HomeAssistantClient
         from core.tibber_optimizer import TibberOptimizer
+        from core.consumption_learner import ConsumptionLearner
     
     # Initialize components
     kostal_api = KostalAPI(
@@ -171,6 +173,29 @@ try:
     )
     ha_client = HomeAssistantClient()
     tibber_optimizer = TibberOptimizer(config)
+
+    # v0.4.0 - Initialize consumption learner
+    consumption_learner = None
+    if config.get('enable_consumption_learning', True):
+        db_path = '/data/consumption_learning.db'
+        learning_days = config.get('learning_period_days', 28)
+        consumption_learner = ConsumptionLearner(db_path, learning_days)
+
+        # Load manual profile if provided
+        manual_profile = config.get('manual_load_profile')
+        if manual_profile:
+            try:
+                consumption_learner.add_manual_profile(manual_profile)
+                add_log('INFO', f'Consumption learner initialized with manual profile ({learning_days} days)')
+            except Exception as e:
+                logger.error(f"Error loading manual profile: {e}")
+                add_log('ERROR', f'Failed to load manual profile: {str(e)}')
+        else:
+            add_log('INFO', f'Consumption learner initialized (learning period: {learning_days} days)')
+
+        # Connect consumption learner to optimizer
+        if tibber_optimizer:
+            tibber_optimizer.set_consumption_learner(consumption_learner)
 
     add_log('INFO', 'Components initialized successfully')
     add_log('INFO', 'Tibber Optimizer initialized')
@@ -191,6 +216,7 @@ except ImportError as e:
     modbus_client = None
     ha_client = None
     tibber_optimizer = None
+    consumption_learner = None
     add_log('WARNING', 'Running in development mode - components not available')
 except Exception as e:
     logger.error(f"Error initializing components: {e}")
@@ -198,6 +224,7 @@ except Exception as e:
     modbus_client = None
     ha_client = None
     tibber_optimizer = None
+    consumption_learner = None
     add_log('ERROR', f'Failed to initialize components: {str(e)}')
 
 # ==============================================================================
@@ -552,6 +579,35 @@ def api_adjust_power():
             'message': str(e)
         }), 500
 
+@app.route('/api/consumption_learning')
+def api_consumption_learning():
+    """Get consumption learning statistics and hourly profile (v0.4.0)"""
+    try:
+        if not consumption_learner:
+            return jsonify({
+                'enabled': False,
+                'message': 'Consumption learning not enabled'
+            })
+
+        # Get statistics
+        stats = consumption_learner.get_statistics()
+
+        # Get hourly profile
+        profile = consumption_learner.get_hourly_profile()
+
+        return jsonify({
+            'enabled': True,
+            'statistics': stats,
+            'hourly_profile': profile
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting consumption learning data: {e}")
+        return jsonify({
+            'enabled': False,
+            'error': str(e)
+        }), 500
+
 # ==============================================================================
 # Error Handlers
 # ==============================================================================
@@ -787,6 +843,10 @@ def controller_loop():
     last_plan_update = None
     plan_update_interval = 300  # 5 Minuten
 
+    # v0.4.0 - Consumption recording (every hour)
+    last_consumption_recording = None
+    consumption_recording_interval = 3600  # 1 Stunde
+
     # v0.3.1 - Calculate charging plan immediately on startup
     update_charging_plan()
     last_plan_update = datetime.now()
@@ -799,6 +859,23 @@ def controller_loop():
                 (now - last_plan_update).total_seconds() > plan_update_interval):
                 update_charging_plan()
                 last_plan_update = now
+
+            # Record consumption periodically (v0.4.0)
+            if (consumption_learner and ha_client and
+                config.get('enable_consumption_learning', True)):
+                if (last_consumption_recording is None or
+                    (now - last_consumption_recording).total_seconds() > consumption_recording_interval):
+                    try:
+                        consumption_sensor = config.get('home_consumption_sensor')
+                        if consumption_sensor:
+                            consumption = ha_client.get_state(consumption_sensor)
+                            if consumption and consumption not in ['unknown', 'unavailable']:
+                                consumption_kwh = float(consumption)
+                                consumption_learner.record_consumption(now, consumption_kwh)
+                                logger.debug(f"Recorded consumption: {consumption_kwh} kWh at {now.strftime('%H:%M')}")
+                                last_consumption_recording = now
+                    except Exception as e:
+                        logger.error(f"Error recording consumption: {e}")
 
             if app_state['controller_running'] and config.get('auto_optimization_enabled', True):
                 # v0.3.0 - Intelligent Tibber-based charging
