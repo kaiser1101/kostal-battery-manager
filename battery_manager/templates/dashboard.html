@@ -605,20 +605,19 @@ let priceChart = null;
 let consumptionChart = null;
 
 function initCharts() {
-    // Price Chart
+    // Price Chart (Bar chart)
     const priceCtx = document.getElementById('priceChart');
     if (priceCtx) {
         priceChart = new Chart(priceCtx, {
-            type: 'line',
+            type: 'bar',
             data: {
                 labels: [],
                 datasets: [{
                     label: 'Preis (Cent/kWh)',
                     data: [],
+                    backgroundColor: 'rgba(255, 193, 7, 0.6)',
                     borderColor: 'rgb(255, 193, 7)',
-                    backgroundColor: 'rgba(255, 193, 7, 0.1)',
-                    tension: 0.4,
-                    fill: true
+                    borderWidth: 1
                 }]
             },
             options: {
@@ -656,20 +655,34 @@ function initCharts() {
         });
     }
 
-    // Consumption Chart
+    // Consumption Chart (Two lines: forecast and actual)
     const consumptionCtx = document.getElementById('consumptionChart');
     if (consumptionCtx) {
         consumptionChart = new Chart(consumptionCtx, {
-            type: 'bar',
+            type: 'line',
             data: {
                 labels: [],
-                datasets: [{
-                    label: 'Verbrauch (kW)',
-                    data: [],
-                    backgroundColor: 'rgba(76, 175, 80, 0.6)',
-                    borderColor: 'rgb(76, 175, 80)',
-                    borderWidth: 1
-                }]
+                datasets: [
+                    {
+                        label: 'Prognose (kW)',
+                        data: [],
+                        borderColor: 'rgb(255, 193, 7)',
+                        backgroundColor: 'rgba(255, 193, 7, 0.2)',
+                        tension: 0.4,
+                        fill: true,
+                        borderWidth: 2
+                    },
+                    {
+                        label: 'Tatsächlich (kW)',
+                        data: [],
+                        borderColor: 'rgb(33, 150, 243)',
+                        backgroundColor: 'transparent',
+                        tension: 0.4,
+                        fill: false,
+                        borderWidth: 2,
+                        spanGaps: true  // Connect line even if there are gaps (null values)
+                    }
+                ]
             },
             options: {
                 responsive: true,
@@ -682,7 +695,10 @@ function initCharts() {
                     tooltip: {
                         callbacks: {
                             label: function(context) {
-                                return 'Verbrauch: ' + context.parsed.y.toFixed(2) + ' kW';
+                                const label = context.dataset.label || '';
+                                const value = context.parsed.y;
+                                if (value === null) return label + ': Keine Daten';
+                                return label + ': ' + value.toFixed(2) + ' kW';
                             }
                         }
                     }
@@ -723,13 +739,13 @@ function updatePriceChart() {
                 priceChart.data.labels = data.labels;
                 priceChart.data.datasets[0].data = data.prices;
 
-                // Highlight current hour
+                // Highlight current hour with different color
                 const currentHour = data.current_hour;
-                priceChart.data.datasets[0].pointBackgroundColor = data.labels.map((label, index) => {
-                    return index === currentHour ? 'red' : 'rgb(255, 193, 7)';
+                priceChart.data.datasets[0].backgroundColor = data.labels.map((label, index) => {
+                    return index === currentHour ? 'rgba(244, 67, 54, 0.8)' : 'rgba(255, 193, 7, 0.6)';
                 });
-                priceChart.data.datasets[0].pointRadius = data.labels.map((label, index) => {
-                    return index === currentHour ? 6 : 3;
+                priceChart.data.datasets[0].borderColor = data.labels.map((label, index) => {
+                    return index === currentHour ? 'rgb(244, 67, 54)' : 'rgb(255, 193, 7)';
                 });
 
                 priceChart.update();
@@ -746,16 +762,10 @@ function updateConsumptionChart() {
         .then(data => {
             if (data.success && consumptionChart) {
                 consumptionChart.data.labels = data.labels;
-                consumptionChart.data.datasets[0].data = data.consumption;
-
-                // Highlight current hour
-                const currentHour = data.current_hour;
-                consumptionChart.data.datasets[0].backgroundColor = data.labels.map((label, index) => {
-                    return index === currentHour ? 'rgba(255, 193, 7, 0.6)' : 'rgba(76, 175, 80, 0.6)';
-                });
-                consumptionChart.data.datasets[0].borderColor = data.labels.map((label, index) => {
-                    return index === currentHour ? 'rgb(255, 193, 7)' : 'rgb(76, 175, 80)';
-                });
+                // Update forecast data (yellow filled line)
+                consumptionChart.data.datasets[0].data = data.forecast;
+                // Update actual data (blue line)
+                consumptionChart.data.datasets[1].data = data.actual;
 
                 consumptionChart.update();
             }
