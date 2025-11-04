@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.3.7] - 2025-11-03
+
+### Fixed
+- Improved condition labels to be more positive and intuitive
+- "SOC unter Sicherheitsminimum" → "Sicherheits-SOC nicht unterschritten" (when OK)
+- "Batterie bereits voll" → "Lade-Limit nicht erreicht/erreicht"
+- Added actual values to all condition labels for better transparency
+- Fixed logic error where 10% was shown as "< 10%"
+
+### Changed
+- Removed redundant "Geplante Ladezeit erreicht" condition
+- Conditions now use: ✅ = Normal/OK, ❌ = Problem/Action needed
+- All labels now show actual values in comparison (e.g., "17% ≥ 10%")
+
+### Examples
+Before:
+- ❌ SOC unter Sicherheitsminimum (10% < 10%) ← Wrong!
+- ❌ Batterie bereits voll (10% ≥ 100%) ← Confusing!
+- ❌ Geplante Ladezeit erreicht ← Redundant
+
+After:
+- ✅ Sicherheits-SOC nicht unterschritten (17% ≥ 10%) ← Clear!
+- ✅ Lade-Limit nicht erreicht (45% < 95%) ← Better!
+- ✅ PV-Ertrag ausreichend (12.0 kWh > 5.0 kWh) ← Informative!
+
 ## [0.3.6] - 2025-11-03
 
 ### Added
