@@ -269,9 +269,79 @@ def consumption_import_page():
     """Consumption data import page (v0.5.0)"""
     return render_template('consumption_import.html')
 
+@app.route('/debug_consumption')
+def debug_consumption_html():
+    """Debug: Show all consumption data as HTML table"""
+    try:
+        import sqlite3
+        with sqlite3.connect(consumption_learner.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT DATE(timestamp) as date, COUNT(*) as hour_count,
+                       MIN(hour) as first_hour, MAX(hour) as last_hour,
+                       SUM(CASE WHEN is_manual = 1 THEN 1 ELSE 0 END) as manual_count
+                FROM hourly_consumption
+                GROUP BY DATE(timestamp)
+                ORDER BY date DESC
+            """)
+
+            rows = cursor.fetchall()
+
+            # Total count
+            cursor = conn.execute("SELECT COUNT(*), SUM(CASE WHEN is_manual = 1 THEN 1 ELSE 0 END) FROM hourly_consumption")
+            total, manual_total = cursor.fetchone()
+
+            html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Consumption Data Debug</title>
+                <style>
+                    body {{ font-family: Arial; background: #1a1a2e; color: #eee; padding: 2rem; }}
+                    h1 {{ color: #4CAF50; }}
+                    table {{ border-collapse: collapse; width: 100%; margin-top: 1rem; }}
+                    th, td {{ border: 1px solid #444; padding: 0.5rem; text-align: left; }}
+                    th {{ background: #333; }}
+                    .total {{ background: #2a2a3e; font-weight: bold; }}
+                </style>
+            </head>
+            <body>
+                <h1>🔍 Consumption Data Debug</h1>
+                <p><strong>Total:</strong> {total} Stunden ({manual_total} manuell, {total - manual_total} gelernt)</p>
+                <table>
+                    <tr>
+                        <th>Datum</th>
+                        <th>Stunden</th>
+                        <th>Erste Stunde</th>
+                        <th>Letzte Stunde</th>
+                        <th>Manuell</th>
+                    </tr>
+            """
+
+            for row in rows:
+                html += f"""
+                    <tr>
+                        <td>{row[0]}</td>
+                        <td>{row[1]}/24</td>
+                        <td>{row[2]}</td>
+                        <td>{row[3]}</td>
+                        <td>{row[4]}</td>
+                    </tr>
+                """
+
+            html += """
+                </table>
+                <p style="margin-top: 2rem;"><a href="./" style="color: #4CAF50;">← Zurück zum Dashboard</a></p>
+            </body>
+            </html>
+            """
+
+            return html
+    except Exception as e:
+        return f"<h1>Error</h1><p>{str(e)}</p>", 500
+
 @app.route('/api/debug_consumption_all')
 def debug_consumption_all():
-    """Debug: Show all consumption data from DB"""
+    """Debug: Show all consumption data from DB (JSON)"""
     try:
         import sqlite3
         with sqlite3.connect(consumption_learner.db_path) as conn:
@@ -736,6 +806,11 @@ def api_consumption_import_csv():
 
         # Read CSV content
         csv_content = file.read().decode('utf-8')
+
+        # Clear all manually imported data before importing new data
+        # This prevents old manual data from lingering
+        deleted = consumption_learner.clear_all_manual_data()
+        add_log('INFO', f'🗑️ Gelöscht: {deleted} alte manuelle Datensätze vor Import')
 
         # Import data
         result = consumption_learner.import_from_csv(csv_content)

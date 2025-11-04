@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.5.9] - 2025-11-04
+
+### Fixed
+- **🗑️ CSV-Import löscht alte Daten** - Verhindert, dass alte manuelle Daten erhalten bleiben
+- Neue Funktionen: `clear_all_manual_data()` und `clear_all_data()`
+- Vor jedem CSV-Import werden alte manuelle Daten automatisch gelöscht
+- Behebt Problem: CSV ohne 7.10. hochladen zeigt trotzdem den 7.10.
+
+### Added
+- **🔍 HTML Debug-Seite** - `/debug_consumption` zeigt Daten als lesbare Tabelle
+- Zeigt für jedes Datum: Anzahl Stunden, erste/letzte Stunde, manuell/gelernt
+- Total-Übersicht: Alle Stunden (manuell + automatisch gelernt)
+- Einfacher Link statt JSON-API
+
+### Technical
+- `consumption_learner.clear_all_manual_data()` - Löscht nur manuelle Daten
+- `consumption_learner.clear_all_data()` - Löscht ALLE Daten
+- CSV-Import ruft automatisch `clear_all_manual_data()` auf
+
 ## [0.5.8] - 2025-11-04
 
 ### Added
