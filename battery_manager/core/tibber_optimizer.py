@@ -138,7 +138,7 @@ class TibberOptimizer:
 
         try:
             if current_hour is None:
-                current_hour = datetime.now().hour
+                current_hour = datetime.now().astimezone().hour
 
             # Predict consumption until evening (18:00)
             # This covers the critical morning period before PV ramps up
