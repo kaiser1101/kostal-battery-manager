@@ -179,7 +179,20 @@ try:
     if config.get('enable_consumption_learning', True):
         db_path = '/data/consumption_learning.db'
         learning_days = config.get('learning_period_days', 28)
-        consumption_learner = ConsumptionLearner(db_path, learning_days)
+
+        # Calculate fallback value
+        # Priority: 1) default_hourly_consumption_fallback, 2) average_daily_consumption / 24, 3) 1.0
+        default_fallback = config.get('default_hourly_consumption_fallback')
+        if not default_fallback:
+            avg_daily = config.get('average_daily_consumption')
+            if avg_daily:
+                default_fallback = float(avg_daily) / 24.0
+                logger.info(f"Using average_daily_consumption {avg_daily} kWh/day → {default_fallback:.2f} kWh/h fallback")
+            else:
+                default_fallback = 1.0
+                logger.info("No consumption baseline configured, using default 1.0 kWh/h fallback")
+
+        consumption_learner = ConsumptionLearner(db_path, learning_days, default_fallback)
 
         # Load manual profile if provided
         manual_profile = config.get('manual_load_profile')
@@ -191,7 +204,7 @@ try:
                 logger.error(f"Error loading manual profile: {e}")
                 add_log('ERROR', f'Failed to load manual profile: {str(e)}')
         else:
-            add_log('INFO', f'Consumption learner initialized (learning period: {learning_days} days)')
+            add_log('INFO', f'Consumption learner initialized (learning period: {learning_days} days, fallback: {default_fallback:.2f} kWh/h)')
 
         # Connect consumption learner to optimizer
         if tibber_optimizer:

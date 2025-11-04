@@ -19,6 +19,8 @@
   - `learning_period_days`: Learning period in days (default: 28, range: 7-90)
   - `home_consumption_sensor`: HA sensor for consumption recording
   - `manual_load_profile`: Initial 24-hour baseline profile (0-23 hours with kW values)
+  - `average_daily_consumption`: Alternative - daily consumption in kWh (divided by 24 for fallback)
+  - `default_hourly_consumption_fallback`: Fallback value when no data (default: 1.0 kWh/h)
 
 ### Changed
 - **Improved charging logic** now considers hourly consumption patterns vs. hourly PV forecast
@@ -27,6 +29,9 @@
 - Charging decisions now account for morning consumption peaks even when daily PV total is sufficient
 - Status explanations updated to show energy balance information
 - ConsumptionLearner integrated into TibberOptimizer for real-time predictions
+- **Flexible fallback configuration**: Choose between manual 24h profile OR simple daily average
+  - Priority: 1) `default_hourly_consumption_fallback`, 2) `average_daily_consumption / 24`, 3) 1.0 kWh/h
+  - No error if no baseline data provided - system starts learning from zero with sensible fallback
 
 ### Technical
 - Created `ConsumptionLearner` class with SQLite backend (`/data/consumption_learning.db`)

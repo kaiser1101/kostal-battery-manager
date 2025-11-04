@@ -16,18 +16,22 @@ logger = logging.getLogger(__name__)
 class ConsumptionLearner:
     """Learns and predicts household consumption patterns"""
 
-    def __init__(self, db_path: str, learning_days: int = 28):
+    def __init__(self, db_path: str, learning_days: int = 28,
+                 default_fallback: float = 1.0):
         """
         Initialize consumption learner
 
         Args:
             db_path: Path to SQLite database
             learning_days: Number of days to keep in history (default 28 = 4 weeks)
+            default_fallback: Default hourly consumption if no data available (kWh)
         """
         self.db_path = db_path
         self.learning_days = learning_days
+        self.default_fallback = default_fallback
         self._init_database()
-        logger.info(f"Consumption Learner initialized (learning period: {learning_days} days)")
+        logger.info(f"Consumption Learner initialized (learning period: {learning_days} days, "
+                   f"fallback: {default_fallback} kWh/h)")
 
     def _init_database(self):
         """Initialize SQLite database with schema"""
@@ -159,8 +163,8 @@ class ConsumptionLearner:
             if result and result[0]:
                 return float(result[0])
 
-            logger.warning(f"No data for hour {hour}, using default 0.5 kWh")
-            return 0.5  # Default fallback
+            logger.warning(f"No data for hour {hour}, using default {self.default_fallback} kWh")
+            return self.default_fallback
 
     def get_hourly_profile(self) -> Dict[int, float]:
         """

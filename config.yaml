@@ -67,8 +67,9 @@ options:
   enable_consumption_learning: true
   learning_period_days: 28  # 4 Wochen Lernzeitraum
   home_consumption_sensor: "sensor.home_energy_consumption"
-  # Manuelles Lastprofil (initial, wird schrittweise überschrieben)
+  # ENTWEDER: Manuelles Lastprofil mit stündlichen Werten (0-23 Uhr)
   # Stündlicher Verbrauch in kW (Durchschnitt über die Stunde)
+  # Wird schrittweise durch echte Messwerte überschrieben
   manual_load_profile:
     "0": 0.2
     "1": 0.2
@@ -94,6 +95,10 @@ options:
     "21": 0.8
     "22": 0.5
     "23": 0.3
+  # ODER: Durchschnittlicher Tagesverbrauch (wird durch 24 geteilt)
+  # average_daily_consumption: 20.0  # kWh pro Tag
+  # Fallback wenn keine Daten vorhanden (Standard: 1.0 kWh/h)
+  # default_hourly_consumption_fallback: 1.0  # kWh pro Stunde
   # OPTIONAL: input_datetime Helfer für HA-Integration
   # Diese müssen in Home Assistant erstellt werden:
   # In configuration.yaml:
@@ -158,6 +163,8 @@ schema:
   enable_consumption_learning: bool
   learning_period_days: int(7,90)
   home_consumption_sensor: str?
+  average_daily_consumption: float?
+  default_hourly_consumption_fallback: float?
 
   input_datetime_planned_charge_end: str?
   input_datetime_planned_charge_start: str?
