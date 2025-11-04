@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.7] - 2025-11-04
+
+### Fixed
+- **🔧 API-Routen im JavaScript** - Verwenden dynamischen basePath statt url_for()
+- JavaScript ermittelt basePath aus aktueller URL
+- Alle fetch() Aufrufe nutzen `basePath + '/api/...'`
+- Behebt JSON.parse Fehler beim Laden der Import-Seite
+- API-Calls funktionieren korrekt mit /ingress Routing
+
+### Technical
+- basePath = `window.location.pathname.replace(/\/[^\/]*$/, '')`
+- Von `/ingress/consumption_import` → basePath = `/ingress`
+- fetch: `basePath + '/api/consumption_data'` → `/ingress/api/consumption_data`
+
 ## [0.5.6] - 2025-11-04
 
 ### Fixed
