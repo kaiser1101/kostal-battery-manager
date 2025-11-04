@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.6] - 2025-11-04
+
+### Fixed
+- **🔗 Relative Links für /ingress Routing** - Links verwenden nun relative Pfade
+- Import-Link im Dashboard: `consumption_import` statt `{{ url_for(...) }}`
+- Zurück-Link: `./` statt `{{ url_for('dashboard') }}`
+- Behebt 404-Fehler durch fehlenden `/ingress` Präfix in generierten URLs
+- Funktioniert korrekt mit HA Ingress unter `/addon_slug/ingress/` Pfad
+
+### Technical
+- Relative Links funktionieren unabhängig vom Ingress-Pfad
+- Dashboard: `/ingress` → Link: `consumption_import` → Ziel: `/ingress/consumption_import`
+- Import: `/ingress/consumption_import` → Link: `./` → Ziel: `/ingress`
+
 ## [0.5.5] - 2025-11-04
 
 ### Fixed
