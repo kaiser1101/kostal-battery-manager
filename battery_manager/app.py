@@ -259,6 +259,11 @@ def logs_page():
     """Logs page"""
     return render_template('logs.html', logs=app_state['logs'])
 
+@app.route('/consumption_import')
+def consumption_import_page():
+    """Consumption data import page (v0.4.0)"""
+    return render_template('consumption_import.html', config=config)
+
 # ==============================================================================
 # API Endpoints
 # ==============================================================================
@@ -618,6 +623,157 @@ def api_consumption_learning():
         logger.error(f"Error getting consumption learning data: {e}")
         return jsonify({
             'enabled': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/consumption_import_csv', methods=['POST'])
+def api_consumption_import_csv():
+    """Import consumption data from CSV file (v0.4.0)"""
+    try:
+        if not consumption_learner:
+            return jsonify({
+                'success': False,
+                'error': 'Consumption learning not enabled'
+            }), 400
+
+        # Check if file was uploaded
+        if 'file' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No file uploaded'
+            }), 400
+
+        file = request.files['file']
+
+        if file.filename == '':
+            return jsonify({
+                'success': False,
+                'error': 'No file selected'
+            }), 400
+
+        if not file.filename.endswith('.csv'):
+            return jsonify({
+                'success': False,
+                'error': 'File must be CSV format'
+            }), 400
+
+        # Read CSV content
+        csv_content = file.read().decode('utf-8')
+
+        # Import data
+        result = consumption_learner.import_from_csv(csv_content)
+
+        if result['success']:
+            add_log('INFO', f'✅ CSV Import: {result["imported_hours"]} Stundenwerte importiert')
+            return jsonify(result)
+        else:
+            add_log('ERROR', f'❌ CSV Import fehlgeschlagen: {result.get("error", "Unknown error")}')
+            return jsonify(result), 400
+
+    except Exception as e:
+        logger.error(f"Error importing CSV: {e}", exc_info=True)
+        add_log('ERROR', f'CSV Import Fehler: {str(e)}')
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/consumption_data', methods=['GET'])
+def api_consumption_data_get():
+    """Get all consumption data for editing (v0.4.0)"""
+    try:
+        if not consumption_learner:
+            return jsonify({
+                'success': False,
+                'error': 'Consumption learning not enabled'
+            }), 400
+
+        # Get all data from database
+        import sqlite3
+        daily_data = []
+
+        with sqlite3.connect(consumption_learner.db_path) as conn:
+            # Get unique dates
+            cursor = conn.execute("""
+                SELECT DISTINCT DATE(timestamp) as date
+                FROM hourly_consumption
+                ORDER BY date DESC
+                LIMIT 28
+            """)
+
+            dates = [row[0] for row in cursor.fetchall()]
+
+            # For each date, get all 24 hours
+            for date_str in dates:
+                cursor = conn.execute("""
+                    SELECT hour, consumption_kwh
+                    FROM hourly_consumption
+                    WHERE DATE(timestamp) = ?
+                    ORDER BY hour
+                """, (date_str,))
+
+                hours_data = {row[0]: row[1] for row in cursor.fetchall()}
+
+                # Build 24-hour array
+                hours = [hours_data.get(h, 0) for h in range(24)]
+
+                # Get weekday (0=Monday, 6=Sunday)
+                from datetime import datetime
+                date_obj = datetime.fromisoformat(date_str)
+                weekdays = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
+                weekday = weekdays[date_obj.weekday()]
+
+                daily_data.append({
+                    'date': date_str,
+                    'weekday': weekday,
+                    'hours': hours
+                })
+
+        return jsonify({
+            'success': True,
+            'data': daily_data
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting consumption data: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/consumption_data', methods=['POST'])
+def api_consumption_data_post():
+    """Save consumption data from web editor (v0.4.0)"""
+    try:
+        if not consumption_learner:
+            return jsonify({
+                'success': False,
+                'error': 'Consumption learning not enabled'
+            }), 400
+
+        data = request.json.get('data', [])
+
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': 'No data provided'
+            }), 400
+
+        # Import the data
+        result = consumption_learner.import_detailed_history(data)
+
+        if result['success']:
+            add_log('INFO', f'✅ Daten gespeichert: {result["imported_hours"]} Stundenwerte')
+            return jsonify(result)
+        else:
+            add_log('ERROR', f'❌ Fehler beim Speichern der Daten')
+            return jsonify(result), 400
+
+    except Exception as e:
+        logger.error(f"Error saving consumption data: {e}")
+        add_log('ERROR', f'Fehler beim Speichern: {str(e)}')
+        return jsonify({
+            'success': False,
             'error': str(e)
         }), 500
 
