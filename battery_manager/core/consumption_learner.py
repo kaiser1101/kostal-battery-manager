@@ -529,13 +529,17 @@ class ConsumptionLearner:
 
         hour = timestamp.hour
 
+        # Round timestamp to full hour to match imported data format
+        # This ensures automatic learning overwrites averaged values from imports
+        rounded_timestamp = timestamp.replace(minute=0, second=0, microsecond=0)
+
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO hourly_consumption
                 (timestamp, hour, consumption_kwh, is_manual, created_at)
                 VALUES (?, ?, ?, 0, ?)
             """, (
-                timestamp.isoformat(),
+                rounded_timestamp.isoformat(),
                 hour,
                 consumption_kwh,
                 datetime.now().isoformat()
