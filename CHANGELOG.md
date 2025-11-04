@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.2] - 2025-11-04
+
+### Fixed
+- **🔗 Dashboard Import-Link** - Verwendung von url_for() für korrektes Ingress-Routing
+- Import-Link im Dashboard verwendet nun Flask url_for('consumption_import_page')
+- Statt hardcodiertem '/consumption_import' nun dynamische URL-Generierung
+- Gewährleistet korrektes Routing durch Home Assistant Ingress-Proxy
+
+### Technical
+- Änderung in dashboard.html: href="{{ url_for('consumption_import_page') }}"
+- Funktioniert mit allen Ingress-URL-Präfixen
+
 ## [0.5.1] - 2025-11-04
 
 ### Fixed
