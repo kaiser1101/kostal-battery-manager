@@ -691,32 +691,28 @@ def get_charging_status_explanation():
 
         now = datetime.now().astimezone()
 
-        # Check conditions
+        # Check conditions (v0.3.7 - improved labels)
+        # ✅ = Normal/OK, ❌ = Problem/Action needed
         conditions = {
-            'soc_below_safety': {
-                'fulfilled': current_soc < min_soc,
-                'label': f'SOC unter Sicherheitsminimum ({current_soc:.0f}% < {min_soc}%)',
+            'soc_safe': {
+                'fulfilled': current_soc >= min_soc,
+                'label': f'Sicherheits-SOC nicht unterschritten ({current_soc:.0f}% ≥ {min_soc}%)' if current_soc >= min_soc else f'Sicherheits-SOC unterschritten ({current_soc:.0f}% < {min_soc}%)',
                 'priority': 1
             },
-            'battery_full': {
-                'fulfilled': current_soc >= max_soc,
-                'label': f'Batterie bereits voll ({current_soc:.0f}% ≥ {max_soc}%)',
+            'below_charge_limit': {
+                'fulfilled': current_soc < max_soc,
+                'label': f'Lade-Limit nicht erreicht ({current_soc:.0f}% < {max_soc}%)' if current_soc < max_soc else f'Lade-Limit erreicht ({current_soc:.0f}% ≥ {max_soc}%)',
                 'priority': 2
             },
             'pv_sufficient': {
                 'fulfilled': pv_remaining > pv_threshold,
-                'label': f'Ausreichend PV erwartet ({pv_remaining:.1f} kWh > {pv_threshold:.1f} kWh)',
+                'label': f'PV-Ertrag ausreichend ({pv_remaining:.1f} kWh > {pv_threshold:.1f} kWh)' if pv_remaining > pv_threshold else f'PV-Ertrag unzureichend ({pv_remaining:.1f} kWh ≤ {pv_threshold:.1f} kWh)',
                 'priority': 3
-            },
-            'time_reached': {
-                'fulfilled': planned_start and now >= planned_start,
-                'label': f'Geplante Ladezeit erreicht' if planned_start else 'Keine Ladezeit geplant',
-                'priority': 4
             },
             'has_plan': {
                 'fulfilled': planned_start is not None,
-                'label': 'Ladeplan vorhanden',
-                'priority': 5
+                'label': 'Ladeplan vorhanden' if planned_start else 'Kein Ladeplan berechnet',
+                'priority': 4
             }
         }
 
