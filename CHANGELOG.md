@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.8] - 2025-11-04
+
+### Added
+- **🔍 Debug-Endpoint** - `/api/debug_consumption/<date>` für Import-Debugging
+- Zeigt Rohdaten aus der Datenbank für ein bestimmtes Datum
+- Hilft bei der Diagnose von Import-Problemen
+
+### Technical
+- Endpoint zeigt timestamp, hour, consumption_kwh, is_manual, created_at
+- Beispiel: `/api/debug_consumption/2025-10-07`
+
 ## [0.5.7] - 2025-11-04
 
 ### Fixed
