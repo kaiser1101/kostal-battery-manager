@@ -32,6 +32,25 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 # Enable CORS for Ingress
 CORS(app)
 
+# Manual Ingress prefix detection for Home Assistant
+@app.before_request
+def detect_ingress_prefix():
+    """Detect and set Ingress prefix if not already set by ProxyFix"""
+    # Check if we're running under Home Assistant Ingress
+    # Ingress URLs look like: /api/hassio_ingress/<token>/...
+    if not request.environ.get('SCRIPT_NAME') or request.environ.get('SCRIPT_NAME') == '':
+        path = request.environ.get('PATH_INFO', '')
+        # Check for Ingress pattern
+        if path.startswith('/api/hassio_ingress/'):
+            # Extract prefix up to and including the token
+            parts = path.split('/')
+            if len(parts) >= 4:  # ['', 'api', 'hassio_ingress', '<token>', ...]
+                prefix = '/' + '/'.join(parts[1:4])  # /api/hassio_ingress/<token>
+                # Remove prefix from PATH_INFO
+                new_path = '/' + '/'.join(parts[4:]) if len(parts) > 4 else '/'
+                request.environ['SCRIPT_NAME'] = prefix
+                request.environ['PATH_INFO'] = new_path
+
 app.config['SECRET_KEY'] = os.urandom(24)
 # Disable template caching to ensure changes are reflected immediately
 app.config['TEMPLATES_AUTO_RELOAD'] = True
@@ -286,6 +305,31 @@ def consumption_import_page():
     """Consumption data import page (v0.5.0)"""
     base_path = request.environ.get('SCRIPT_NAME', '')
     return render_template('consumption_import.html', base_path=base_path)
+
+@app.route('/debug_ingress')
+def debug_ingress():
+    """Debug route to show what Flask sees from Ingress"""
+    from flask import url_for
+    debug_info = {
+        'request.url': request.url,
+        'request.base_url': request.base_url,
+        'request.url_root': request.url_root,
+        'request.path': request.path,
+        'request.script_root': request.script_root,
+        'request.environ.SCRIPT_NAME': request.environ.get('SCRIPT_NAME', 'NOT SET'),
+        'request.environ.PATH_INFO': request.environ.get('PATH_INFO', 'NOT SET'),
+        'url_for("static", filename="css/style.css")': url_for('static', filename='css/style.css'),
+        'url_for("index")': url_for('index'),
+        'headers': dict(request.headers)
+    }
+    html = '<html><head><title>Debug Ingress</title></head><body>'
+    html += '<h1>Flask Ingress Debug Info</h1>'
+    html += '<table border="1" cellpadding="5">'
+    for key, value in debug_info.items():
+        html += f'<tr><td><b>{key}</b></td><td>{value}</td></tr>'
+    html += '</table>'
+    html += '</body></html>'
+    return html
 
 @app.route('/debug_consumption')
 def debug_consumption_html():
