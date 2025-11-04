@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.6.1] - 2025-11-04
+
+### Fixed
+- **🔧 Watt-Sensor Unterstützung** - Automatische Umrechnung von Watt zu kW
+- Sensoren die Leistung in Watt (W) statt kWh liefern werden nun korrekt verarbeitet
+- Werte > 50 werden automatisch als Watt erkannt und durch 1000 geteilt (W → kW)
+- Filter-Schwelle von 50 kWh auf 50.000 W (50 kW) erhöht für realistische Hausverbräuche
+- Mindest-Daten-Schwelle von 12 auf 3 Stunden pro Tag reduziert (für spärliche History-Daten)
+- Detailliertes Logging: Zeigt genau welche Einträge warum gefiltert wurden
+- Zeigt verfügbare Stunden pro Tag für besseres Debugging
+
+### Technical
+- Automatische Einheit-Erkennung: Werte > 50 = Watt, Werte ≤ 50 = kWh
+- Neue Logging-Counter: skipped_unavailable, skipped_not_numeric, skipped_negative, skipped_too_high
+- Log zeigt jetzt für jeden Tag: Anzahl Stunden und welche Stunden vorhanden sind
+- Beispiel: 865 W → 0.865 kW automatisch konvertiert
+
+### Why This Matters
+- **Funktioniert mit Standard-Sensoren** - Die meisten HA Verbrauchssensoren liefern Watt, nicht kWh
+- **Bessere Datennutzung** - 3 Stunden pro Tag reichen jetzt (vorher 12), mehr Tage werden importiert
+- **Besseres Debugging** - Klare Logs zeigen genau, was mit den Daten passiert
+
 ## [0.6.0] - 2025-11-04
 
 ### Added
