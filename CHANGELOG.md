@@ -1,5 +1,65 @@
 # Changelog
 
+## [0.5.0] - 2025-11-04
+
+### Added
+- **📊 CSV-Import für detaillierte Verbrauchsdaten** - Importiere 28 Tage mit individuellen Tagesprofilen
+- **✏️ Web-basierter Tabellen-Editor** - Bearbeite Verbrauchsdaten direkt im Browser
+- Neue Import-Seite `/consumption_import` mit vollem Import/Editor Interface
+- CSV-Import unterstützt:
+  - Detaillierte historische Daten (28 Tage × 24 Stunden = 672 Datenpunkte)
+  - Deutsches Zahlenformat (Komma als Dezimaltrennzeichen)
+  - Flexible Datumsformate (YYYY-MM-DD oder DD.MM.YYYY)
+  - Automatische Wochentagserkennung aus Datum
+  - Echtzeit-Validierung und Fehlerbehandlung
+- CSV-Vorlagen-Download-Funktion für einfachen Einstieg
+- Web-Editor Features:
+  - 28×24 Daten-Matrix mit vollständiger Bearbeitung
+  - Zeilen hinzufügen/löschen
+  - Automatische Wochentagsberechnung
+  - Laden vorhandener Daten aus Datenbank
+  - Speichern bearbeiteter Daten
+- Dashboard-Link zur Import-Seite
+- Neue API-Endpunkte:
+  - `POST /api/consumption_import_csv` - CSV-Datei Upload
+  - `GET /api/consumption_data` - Vorhandene Daten laden
+  - `POST /api/consumption_data` - Bearbeitete Daten speichern
+- Erweiterte ConsumptionLearner-Funktionen:
+  - `import_detailed_history()` - Import mit individuellen Tagesprofilen
+  - `import_from_csv()` - Robustes CSV-Parsing mit Fehlerbehandlung
+
+### Changed
+- Verbrauchslernen unterscheidet jetzt zwischen Wochentagen und Wochenende
+- Detailliertere Datenbasis ermöglicht präzisere Vorhersagen
+- Verbesserte Validierung für negative und unrealistische Werte
+
+### Technical
+- CSV-Parser mit `io.StringIO` und `csv.DictReader`
+- Unterstützung für beide Dezimaltrennzeichen (Komma/Punkt)
+- Flexible Datumsformatierung mit Fallback
+- Vollständige Fehlerbehandlung mit detaillierten Log-Meldungen
+- `is_manual` Flag zur Unterscheidung manueller vs. gelernter Daten
+- Automatische Bereinigung alter Daten über Lernzeitraum
+
+### Why This Matters
+- **Wochenend-Muster**: Samstag/Sonntag haben oft andere Verbrauchsmuster als Wochentage
+- **Präzisere Vorhersagen**: 28 individuelle Tagesprofile statt 1 generisches Profil
+- **Schneller Start**: Mit vorhandenen Daten sofort optimale Ladeentscheidungen
+- **Flexibilität**: CSV-Import für Masse, Web-Editor für Feintuning
+
+### Example
+Statt ein generisches Tagesprofil für alle 28 Tage:
+```
+Jeden Tag: 7-8 Uhr = 2.0 kWh
+```
+
+Jetzt individuelle Profile pro Wochentag:
+```
+Montag 7-8 Uhr: 2.5 kWh (Arbeitstag, Homeoffice)
+Samstag 7-8 Uhr: 0.8 kWh (Wochenende, länger geschlafen)
+```
+→ Bessere Vorhersagen, präzisere Ladesteuerung!
+
 ## [0.4.0] - 2025-11-04
 
 ### Added
