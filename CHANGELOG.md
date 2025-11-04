@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.6.3] - 2025-11-04
+
+### Added
+- **📊 Grafische Darstellungen im Dashboard** - Zwei neue interaktive Charts
+- **Tibber Preisverlauf-Grafik** - Zeigt stündliche Strompreise für heute
+  - Liniendiagramm mit allen 24 Stunden
+  - Aktuelle Stunde hervorgehoben (roter Punkt)
+  - Preise in Cent/kWh dargestellt
+  - Automatische Aktualisierung alle 5 Minuten
+- **Verbrauchsprognose-Grafik** - Zeigt prognostizierten Verbrauch basierend auf historischen Daten
+  - Balkendiagramm mit stündlichen Verbrauchswerten
+  - Aktuelle Stunde hervorgehoben (gelb)
+  - Verbrauch in kW dargestellt
+  - Basiert auf den gelernten Verbrauchsmustern
+- **Chart.js Integration** - Moderne, responsive Diagramme
+- Neue API-Endpunkte:
+  - `GET /api/tibber_price_chart` - Preisverlauf für Grafik
+  - `GET /api/consumption_forecast_chart` - Verbrauchsprognose für Grafik
+
+### Technical
+- Chart.js 4.4.0 von CDN eingebunden
+- Responsive Charts mit Dark-Mode-Support
+- Automatische Aktualisierung der Grafiken alle 5 Minuten
+- Highlighting der aktuellen Stunde in beiden Grafiken
+- Optimierte Chart-Performance mit `maintainAspectRatio: false`
+
+### Why This Matters
+- **Visuelle Übersicht** - Schnell erkennbare Muster im Preisverlauf
+- **Bessere Planung** - Sehe wann die Preise steigen/fallen
+- **Verbrauchseinblick** - Verstehe deine Verbrauchsmuster über den Tag
+- **Datenbasierte Entscheidungen** - Kombiniere Preis + Verbrauch für optimale Ladezeiten
+
+### Example
+Preisgrafik zeigt:
+- 00:00-06:00: Niedrige Preise (grün) → Optimal zum Laden
+- 06:00-20:00: Hohe Preise (gelb/rot) → Batterie nutzen
+- 20:00-24:00: Mittlere Preise
+
+Verbrauchsgrafik zeigt:
+- Morgens 06:00-08:00: Hoher Verbrauch (Frühstück, Kaffee)
+- Mittags 12:00-14:00: Mittlerer Verbrauch (Kochen)
+- Abends 17:00-21:00: Hoher Verbrauch (Abendessen, TV)
+
+→ Kombiniert: Batterie vorher laden wenn Preise niedrig sind!
+
 ## [0.6.2] - 2025-11-04
 
 ### Fixed
