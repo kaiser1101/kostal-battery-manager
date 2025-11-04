@@ -830,6 +830,56 @@ def api_consumption_import_csv():
             'error': str(e)
         }), 500
 
+@app.route('/api/consumption_import_ha', methods=['POST'])
+def api_consumption_import_ha():
+    """Import consumption data from Home Assistant history (v0.6.0)"""
+    try:
+        if not consumption_learner:
+            return jsonify({
+                'success': False,
+                'error': 'Consumption learning not enabled'
+            }), 400
+
+        if not ha_client:
+            return jsonify({
+                'success': False,
+                'error': 'Home Assistant client not available'
+            }), 400
+
+        # Get entity_id and days from config
+        entity_id = config.get('home_consumption_sensor')
+        if not entity_id:
+            return jsonify({
+                'success': False,
+                'error': 'home_consumption_sensor not configured'
+            }), 400
+
+        days = request.json.get('days', 28) if request.json else 28
+
+        add_log('INFO', f'Starting Home Assistant history import for {entity_id} (last {days} days)...')
+
+        # Clear all manually imported data before importing new data
+        deleted = consumption_learner.clear_all_manual_data()
+        add_log('INFO', f'🗑️ Gelöscht: {deleted} alte manuelle Datensätze vor Import')
+
+        # Import from Home Assistant
+        result = consumption_learner.import_from_home_assistant(ha_client, entity_id, days)
+
+        if result['success']:
+            add_log('INFO', f'✅ HA Import: {result["imported_hours"]} Stundenwerte aus Home Assistant importiert')
+            return jsonify(result)
+        else:
+            add_log('ERROR', f'❌ HA Import fehlgeschlagen: {result.get("error", "Unknown error")}')
+            return jsonify(result), 400
+
+    except Exception as e:
+        logger.error(f"Error importing from Home Assistant: {e}", exc_info=True)
+        add_log('ERROR', f'HA Import Fehler: {str(e)}')
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/consumption_data', methods=['GET'])
 def api_consumption_data_get():
     """Get all consumption data for editing (v0.4.0)"""

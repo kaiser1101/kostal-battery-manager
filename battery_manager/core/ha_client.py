@@ -177,3 +177,56 @@ class HomeAssistantClient:
         except Exception as e:
             logger.error(f"Error setting datetime: {e}")
             return False
+
+    def get_history(self, entity_id, start_time, end_time=None):
+        """
+        Get historical data for an entity (v0.6.0)
+
+        Args:
+            entity_id: Entity ID (e.g., 'sensor.ksem_home_consumption')
+            start_time: Start datetime (ISO format or datetime object)
+            end_time: End datetime (ISO format or datetime object), optional (defaults to now)
+
+        Returns:
+            list: List of state changes, each with 'state', 'last_changed', etc.
+                  Returns empty list if failed
+        """
+        if not self.token:
+            logger.debug(f"Cannot get history for {entity_id} - no token")
+            return []
+
+        try:
+            # Convert datetime objects to ISO strings if needed
+            if hasattr(start_time, 'isoformat'):
+                start_time = start_time.isoformat()
+
+            # Build URL
+            url = f"{self.api_url}/api/history/period/{start_time}"
+            params = {'filter_entity_id': entity_id}
+
+            if end_time:
+                if hasattr(end_time, 'isoformat'):
+                    end_time = end_time.isoformat()
+                params['end_time'] = end_time
+
+            logger.info(f"Fetching history for {entity_id} from {start_time} to {end_time or 'now'}")
+
+            response = requests.get(url, params=params, headers=self.headers, timeout=30)
+
+            if response.status_code == 200:
+                data = response.json()
+                # History API returns list of lists, one per entity
+                if data and len(data) > 0:
+                    history = data[0]  # First element is our entity
+                    logger.info(f"Retrieved {len(history)} history entries for {entity_id}")
+                    return history
+                else:
+                    logger.warning(f"No history data found for {entity_id}")
+                    return []
+            else:
+                logger.error(f"Failed to get history for {entity_id}: HTTP {response.status_code}")
+                return []
+
+        except Exception as e:
+            logger.error(f"Error getting history for {entity_id}: {e}")
+            return []

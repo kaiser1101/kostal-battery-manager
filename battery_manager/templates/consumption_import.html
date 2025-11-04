@@ -90,6 +90,30 @@
     <h1>📊 Verbrauchsdaten Import</h1>
 
     <div class="card">
+        <h2>🏠 Aus Home Assistant importieren (v0.6.0)</h2>
+        <p>Importiere automatisch die letzten 28 Tage aus deinem Home Assistant Verbrauchssensor.</p>
+        <p><strong>Sensor:</strong> <code>{{ config.get('home_consumption_sensor', 'Nicht konfiguriert') }}</code></p>
+
+        <div style="margin-top: 1rem;">
+            <button onclick="importFromHA()" class="btn btn-primary">
+                📥 Jetzt aus Home Assistant importieren
+            </button>
+        </div>
+
+        <div id="haImportResult" style="margin-top: 1rem;"></div>
+
+        <div class="csv-format-info" style="margin-top: 1.5rem;">
+            <p><strong>So funktioniert's:</strong></p>
+            <ul>
+                <li>Das Addon liest die letzten 28 Tage aus dem Home Assistant Verlauf</li>
+                <li>Hochauflösende Daten (mehrere Werte pro Stunde) werden automatisch gemittelt</li>
+                <li>Stundenwerte werden berechnet und gespeichert</li>
+                <li>Sensor muss in <code>config.yaml</code> als <code>home_consumption_sensor</code> konfiguriert sein</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="card">
         <h2>CSV-Datei importieren</h2>
         <p>Importiere deine historischen Verbrauchsdaten (28 Tage × 24 Stunden) aus einer CSV-Datei.</p>
 
@@ -243,6 +267,59 @@ function handleFileSelect(event) {
         document.getElementById('fileName').textContent = selectedFile.name;
         document.getElementById('selectedFile').style.display = 'block';
     }
+}
+
+// Import from Home Assistant (v0.6.0)
+function importFromHA() {
+    if (!confirm('Möchtest du die letzten 28 Tage aus Home Assistant importieren?\n\nDies kann einige Minuten dauern und überschreibt alle manuell importierten Daten.')) {
+        return;
+    }
+
+    showLoading('Importiere aus Home Assistant... Dies kann einige Minuten dauern.');
+
+    fetch(basePath + '/api/consumption_import_ha', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ days: 28 })
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideLoading();
+        if (data.success) {
+            showNotification('success', `✅ Import erfolgreich! ${data.imported_hours} Stundenwerte aus Home Assistant importiert.`, 8000);
+            document.getElementById('haImportResult').innerHTML = `
+                <div style="color: #4CAF50; padding: 1rem; background: rgba(76,175,80,0.1); border-radius: 4px;">
+                    <strong>✅ Import erfolgreich!</strong><br>
+                    ${data.imported_hours} Stundenwerte importiert<br>
+                    ${data.imported_days} Tage importiert<br>
+                    ${data.skipped_days} Tage übersprungen (unvollständige Daten)<br>
+                    ${data.history_entries} Verlaufseinträge verarbeitet
+                </div>
+            `;
+            // Reload table
+            setTimeout(() => loadData(), 1000);
+        } else {
+            showNotification('error', `❌ Import fehlgeschlagen: ${data.error}`, 10000);
+            document.getElementById('haImportResult').innerHTML = `
+                <div style="color: #f44336; padding: 1rem; background: rgba(244,67,54,0.1); border-radius: 4px;">
+                    <strong>❌ Import fehlgeschlagen</strong><br>
+                    ${data.error}
+                </div>
+            `;
+        }
+    })
+    .catch(error => {
+        hideLoading();
+        showNotification('error', 'Fehler beim Import: ' + error, 10000);
+        document.getElementById('haImportResult').innerHTML = `
+            <div style="color: #f44336; padding: 1rem; background: rgba(244,67,54,0.1); border-radius: 4px;">
+                <strong>❌ Fehler beim Import</strong><br>
+                ${error}
+            </div>
+        `;
+    });
 }
 
 // Upload CSV

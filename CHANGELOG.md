@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.6.0] - 2025-11-04
+
+### Added
+- **🏠 Automatischer Home Assistant History Import** - Importiere Verbrauchsdaten direkt aus Home Assistant
+- Neuer Button "Aus Home Assistant importieren" auf Import-Seite
+- Automatische Datenverarbeitung der letzten 28 Tage aus dem konfigurierten Sensor
+- Intelligente Handhabung hochauflösender Daten (mehrere Werte pro Stunde werden gemittelt)
+- Ältere Daten (nur stündlich) werden direkt übernommen
+- Neue API-Endpunkte:
+  - `POST /api/consumption_import_ha` - Import aus Home Assistant History
+- Erweiterte HA Client-Funktionen:
+  - `get_history()` - Abrufen historischer Daten über HA REST API
+- Erweiterte ConsumptionLearner-Funktionen:
+  - `import_from_home_assistant()` - Vollautomatischer Import mit Datenverarbeitung
+
+### Technical
+- Nutzt Home Assistant History API (`/api/history/period/{start_time}`)
+- Gruppiert Datenpunkte nach (Datum, Stunde) und berechnet Durchschnitt
+- Filtert negative Werte und unrealistische Werte (> 50 kWh)
+- Überspringt Tage mit weniger als 12 Stunden Daten
+- Füllt fehlende Stunden innerhalb eines Tages mit Tagesdurchschnitt
+- Löscht alte manuelle Daten vor neuem Import (verhindert Datenkonflikte)
+- Konfigurierbar über `home_consumption_sensor` in config.yaml
+
+### Why This Matters
+- **Kein manueller CSV-Export mehr nötig** - Direkter Zugriff auf HA-Verlaufsdaten
+- **Hochauflösende Daten optimal genutzt** - Mehrfachwerte pro Stunde → präziser Durchschnitt
+- **Robuste Datenverarbeitung** - Filtert Ausreißer, Fehler und unrealistische Werte
+- **Ein-Klick-Import** - 28 Tage Historie mit einem Klick importiert
+- **Intelligente Lückenbehandlung** - Fehlende Stunden werden mit Tagesdurchschnitt gefüllt
+
+### Example
+Statt CSV manuell erstellen:
+```
+1. Daten aus HA exportieren
+2. CSV formatieren
+3. Hochladen
+```
+
+Jetzt:
+```
+1. Button klicken
+2. Fertig!
+```
+
+Sensor `sensor.ksem_home_consumption` liefert:
+- Montag 7:00-8:00: [2.1, 2.3, 2.0, 2.4, ...] (300 Werte) → Ø 2.2 kWh
+- Dienstag 7:00-8:00: [1.9] (1 Wert) → 1.9 kWh
+→ System verarbeitet beide Fälle korrekt!
+
 ## [0.5.9] - 2025-11-04
 
 ### Fixed
