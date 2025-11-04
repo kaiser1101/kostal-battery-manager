@@ -350,6 +350,24 @@ class ConsumptionLearner:
             """, (cutoff.isoformat(),))
             conn.commit()
 
+    def clear_all_manual_data(self):
+        """Clear all manually imported data (keeps automatically learned data)"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("DELETE FROM hourly_consumption WHERE is_manual = 1")
+            deleted = cursor.rowcount
+            conn.commit()
+            logger.info(f"Cleared {deleted} manually imported records")
+            return deleted
+
+    def clear_all_data(self):
+        """Clear ALL consumption data (manual AND learned)"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("DELETE FROM hourly_consumption")
+            deleted = cursor.rowcount
+            conn.commit()
+            logger.info(f"Cleared ALL {deleted} consumption records")
+            return deleted
+
     def get_average_consumption(self, hour: int) -> float:
         """
         Get average consumption for a specific hour
