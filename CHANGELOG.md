@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.4] - 2025-11-04
+
+### Fixed
+- **📄 Direktes HTML-Serving** - consumption_import.html wird nun direkt gelesen und gesendet
+- Umgehung von render_template() für standalone HTML-Datei
+- Vermeidet potenzielle Jinja2-Rendering-Probleme
+- Explizite UTF-8 Encoding beim Lesen der Datei
+- Fehlerbehandlung mit aussagekräftigen Fehlermeldungen
+
+### Technical
+- Route liest HTML-Datei direkt mit open() und return f.read()
+- Try-catch Block für besseres Error-Handling
+- Loggt Fehler für einfacheres Debugging
+
 ## [0.5.3] - 2025-11-04
 
 ### Fixed

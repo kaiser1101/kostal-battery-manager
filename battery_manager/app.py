@@ -266,8 +266,15 @@ def logs_page():
 
 @app.route('/consumption_import')
 def consumption_import_page():
-    """Consumption data import page (v0.4.0)"""
-    return render_template('consumption_import.html', config=config)
+    """Consumption data import page (v0.5.0) - Standalone HTML"""
+    # Read and return the standalone HTML file directly
+    try:
+        template_path = os.path.join(app.template_folder, 'consumption_import.html')
+        with open(template_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception as e:
+        logger.error(f"Error loading consumption_import.html: {e}")
+        return f"<h1>Error loading page</h1><p>{str(e)}</p>", 500
 
 @app.route('/test')
 def test_page():
