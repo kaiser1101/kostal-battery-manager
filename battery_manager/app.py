@@ -264,6 +264,11 @@ def consumption_import_page():
     """Consumption data import page (v0.4.0)"""
     return render_template('consumption_import.html', config=config)
 
+@app.route('/test')
+def test_page():
+    """Test route to verify new routes work"""
+    return "<h1>Test Route funktioniert!</h1><p>Wenn du das siehst, funktionieren neue Routen.</p><p><a href='/'>Zurück zum Dashboard</a></p>"
+
 # ==============================================================================
 # API Endpoints
 # ==============================================================================
