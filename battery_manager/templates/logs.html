@@ -38,7 +38,7 @@
 let autoRefreshInterval = null;
 
 function refreshLogs() {
-    fetch('/api/logs')
+    fetch(BASE_PATH + '/api/logs')
         .then(response => response.json())
         .then(data => {
             const container = document.getElementById('logs-container');

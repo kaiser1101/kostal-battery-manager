@@ -149,8 +149,8 @@ function saveConfig(event) {
     }
     
     showLoading('Speichere Konfiguration...');
-    
-    fetch('/api/config', {
+
+    fetch(BASE_PATH + '/api/config', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(config)
