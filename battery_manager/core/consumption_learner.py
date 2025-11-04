@@ -299,6 +299,155 @@ class ConsumptionLearner:
                 'skipped_days': 0
             }
 
+    def import_from_home_assistant(self, ha_client, entity_id: str, days: int = 28) -> Dict:
+        """
+        Import consumption data from Home Assistant history (v0.6.0)
+
+        Args:
+            ha_client: HomeAssistantClient instance
+            entity_id: Entity ID to import (e.g., 'sensor.ksem_home_consumption')
+            days: Number of days to import (default 28)
+
+        Returns:
+            Dict with import results
+        """
+        try:
+            logger.info(f"Starting HA history import for {entity_id}, last {days} days...")
+
+            # Calculate time range
+            end_time = datetime.now()
+            start_time = end_time - timedelta(days=days)
+
+            # Get history data from HA
+            history = ha_client.get_history(entity_id, start_time, end_time)
+
+            if not history:
+                return {
+                    'success': False,
+                    'error': 'No history data received from Home Assistant',
+                    'imported_hours': 0,
+                    'skipped_days': 0
+                }
+
+            logger.info(f"Received {len(history)} data points from HA")
+
+            # Group data by date and hour
+            hourly_data = {}  # Key: (date, hour), Value: list of values
+
+            for entry in history:
+                try:
+                    # Parse timestamp
+                    timestamp_str = entry.get('last_changed') or entry.get('last_updated')
+                    if not timestamp_str:
+                        continue
+
+                    timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+
+                    # Parse state value
+                    state = entry.get('state')
+                    if state in ['unknown', 'unavailable', None]:
+                        continue
+
+                    try:
+                        value = float(state)
+                    except (ValueError, TypeError):
+                        continue
+
+                    # Skip negative and unrealistic values
+                    if value < 0 or value > 50:
+                        continue
+
+                    # Group by date and hour
+                    date_key = timestamp.date()
+                    hour_key = timestamp.hour
+                    key = (date_key, hour_key)
+
+                    if key not in hourly_data:
+                        hourly_data[key] = []
+
+                    hourly_data[key].append(value)
+
+                except Exception as e:
+                    logger.debug(f"Skipping invalid history entry: {e}")
+                    continue
+
+            if not hourly_data:
+                return {
+                    'success': False,
+                    'error': 'No valid data points found in history',
+                    'imported_hours': 0,
+                    'skipped_days': 0
+                }
+
+            logger.info(f"Grouped into {len(hourly_data)} hour buckets")
+
+            # Calculate average for each hour and group by day
+            daily_data_dict = {}  # Key: date, Value: dict with hours
+
+            for (date_key, hour_key), values in hourly_data.items():
+                # Calculate average consumption for this hour
+                avg_consumption = sum(values) / len(values)
+
+                if date_key not in daily_data_dict:
+                    daily_data_dict[date_key] = {}
+
+                daily_data_dict[date_key][hour_key] = avg_consumption
+
+            # Convert to format for import_detailed_history
+            daily_data = []
+            weekdays_de = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
+
+            for date_key in sorted(daily_data_dict.keys()):
+                hours_dict = daily_data_dict[date_key]
+
+                # Build 24-hour array (fill missing hours with 0 or skip incomplete days)
+                if len(hours_dict) < 12:  # Skip days with too little data
+                    logger.warning(f"Skipping {date_key}: only {len(hours_dict)} hours of data")
+                    continue
+
+                hours = []
+                for h in range(24):
+                    if h in hours_dict:
+                        hours.append(hours_dict[h])
+                    else:
+                        # Use average of available data for missing hours
+                        if hours_dict:
+                            hours.append(sum(hours_dict.values()) / len(hours_dict))
+                        else:
+                            hours.append(0)
+
+                # Get weekday
+                weekday_idx = date_key.weekday()
+                weekday = weekdays_de[weekday_idx]
+
+                daily_data.append({
+                    'date': date_key.isoformat(),
+                    'weekday': weekday,
+                    'hours': hours
+                })
+
+            if not daily_data:
+                return {
+                    'success': False,
+                    'error': 'No complete days found in history data',
+                    'imported_hours': 0,
+                    'skipped_days': 0
+                }
+
+            logger.info(f"Prepared {len(daily_data)} days for import")
+
+            # Import the data
+            return self.import_detailed_history(daily_data)
+
+        except Exception as e:
+            logger.error(f"Error importing from Home Assistant: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': str(e),
+                'imported_hours': 0,
+                'skipped_days': 0
+            }
+
     def record_consumption(self, timestamp: datetime, consumption_kwh: float):
         """
         Record actual consumption for learning
