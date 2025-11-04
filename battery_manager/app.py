@@ -269,6 +269,39 @@ def consumption_import_page():
     """Consumption data import page (v0.5.0)"""
     return render_template('consumption_import.html')
 
+@app.route('/api/debug_consumption/<date>')
+def debug_consumption(date):
+    """Debug: Show raw DB data for a specific date"""
+    try:
+        import sqlite3
+        with sqlite3.connect(consumption_learner.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT timestamp, hour, consumption_kwh, is_manual, created_at
+                FROM hourly_consumption
+                WHERE DATE(timestamp) = ?
+                ORDER BY hour
+            """, (date,))
+
+            rows = cursor.fetchall()
+            result = {
+                'date': date,
+                'count': len(rows),
+                'hours': []
+            }
+
+            for row in rows:
+                result['hours'].append({
+                    'timestamp': row[0],
+                    'hour': row[1],
+                    'consumption_kwh': row[2],
+                    'is_manual': row[3],
+                    'created_at': row[4]
+                })
+
+            return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/test')
 def test_page():
     """Test route to verify new routes work"""
