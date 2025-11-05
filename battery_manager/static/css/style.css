@@ -151,10 +151,19 @@ header {
     grid-column: span 1;
 }
 
+/* Chart cards span all columns for full width */
+.dashboard > .card.chart-card {
+    grid-column: 1 / -1;
+}
+
 /* Responsive grid - reduce columns on smaller screens */
 @media (max-width: 1400px) {
     .dashboard {
         grid-template-columns: repeat(3, 1fr);
+    }
+
+    .dashboard > .card.chart-card {
+        grid-column: 1 / -1;
     }
 }
 
@@ -162,11 +171,19 @@ header {
     .dashboard {
         grid-template-columns: repeat(2, 1fr);
     }
+
+    .dashboard > .card.chart-card {
+        grid-column: 1 / -1;
+    }
 }
 
 @media (max-width: 650px) {
     .dashboard {
         grid-template-columns: repeat(1, 1fr);
+    }
+
+    .dashboard > .card.chart-card {
+        grid-column: 1 / -1;
     }
 }
 
@@ -668,29 +685,5 @@ footer {
     to {
         transform: translateX(0);
         opacity: 1;
-    }
-}
-
-/* Chart Cards - Full width across all columns */
-.chart-card {
-    grid-column: 1 / -1;  /* Span from first to last column */
-}
-
-/* Ensure charts stay full width at all breakpoints */
-@media (max-width: 1400px) {
-    .chart-card {
-        grid-column: 1 / -1;
-    }
-}
-
-@media (max-width: 1000px) {
-    .chart-card {
-        grid-column: 1 / -1;
-    }
-}
-
-@media (max-width: 650px) {
-    .chart-card {
-        grid-column: 1 / -1;
     }
 }
