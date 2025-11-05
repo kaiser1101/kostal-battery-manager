@@ -41,6 +41,16 @@ def inject_base_path():
     # Ingress URLs look like: /api/hassio_ingress/<token>/...
     base_path = request.environ.get('SCRIPT_NAME', '')
 
+    # DEBUG: Log what Flask sees
+    logger.info(f"=== INGRESS DEBUG ===")
+    logger.info(f"SCRIPT_NAME: {request.environ.get('SCRIPT_NAME', 'NOT SET')}")
+    logger.info(f"PATH_INFO: {request.environ.get('PATH_INFO', 'NOT SET')}")
+    logger.info(f"REQUEST_URI: {request.environ.get('REQUEST_URI', 'NOT SET')}")
+    logger.info(f"HTTP_X_FORWARDED_PREFIX: {request.environ.get('HTTP_X_FORWARDED_PREFIX', 'NOT SET')}")
+    logger.info(f"HTTP_X_INGRESS_PATH: {request.environ.get('HTTP_X_INGRESS_PATH', 'NOT SET')}")
+    logger.info(f"All headers: {dict(request.headers)}")
+    logger.info(f"==================")
+
     if not base_path or base_path == '':
         path = request.environ.get('PATH_INFO', '')
         # Check for Ingress pattern
@@ -54,6 +64,7 @@ def inject_base_path():
                 # Remove prefix from PATH_INFO
                 new_path = '/' + '/'.join(parts[4:]) if len(parts) > 4 else '/'
                 request.environ['PATH_INFO'] = new_path
+                logger.info(f"Detected Ingress prefix: {base_path}")
 
     return dict(base_path=base_path)
 
