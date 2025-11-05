@@ -753,3 +753,43 @@ class ConsumptionLearner:
             'newest_record': None,
             'learning_progress': 0.0
         }
+
+    def get_today_consumption(self, date=None) -> Dict[int, float]:
+        """
+        Get actual recorded consumption values for a specific date (default: today)
+
+        Args:
+            date: Date to get consumption for (datetime.date object), defaults to today
+
+        Returns:
+            Dict with hour (0-23) as key and actual consumption in kWh as value
+            Only includes hours that have been recorded
+        """
+        from datetime import date as date_type, datetime
+
+        if date is None:
+            date = datetime.now().date()
+        elif isinstance(date, datetime):
+            date = date.date()
+
+        date_str = date.isoformat()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT hour, consumption_kwh
+                FROM hourly_consumption
+                WHERE DATE(timestamp) = ?
+                ORDER BY created_at DESC
+            """, (date_str,))
+
+            # Build dict with most recent value per hour
+            hourly_consumption = {}
+            for row in cursor.fetchall():
+                hour = row[0]
+                consumption = row[1]
+                # Only store if we haven't seen this hour yet (ORDER BY DESC means first is newest)
+                if hour not in hourly_consumption:
+                    hourly_consumption[hour] = consumption
+
+            return hourly_consumption
+

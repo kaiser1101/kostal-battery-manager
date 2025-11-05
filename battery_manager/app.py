@@ -886,29 +886,31 @@ def api_consumption_forecast_chart():
                 'error': 'No consumption data available'
             }), 500
 
-        # Get actual consumption for today
+        # Get actual consumption for today (v0.7.17: use DB values for consistency)
         actual_consumption = []
-        if ha_client:
+        from datetime import datetime
+
+        # Get recorded values from database for today
+        today_db_consumption = consumption_learner.get_today_consumption()
+
+        now = datetime.now()
+        current_hour = now.hour
+        current_minute = now.minute
+
+        # For current hour only: calculate live value with blending
+        current_hour_live_value = None
+        if ha_client and current_minute < 59:
             try:
                 entity_id = config.get('home_consumption_sensor')
                 if entity_id:
-                    # Get today's history
-                    from datetime import datetime, timedelta
-                    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-                    history = ha_client.get_history(entity_id, today_start, datetime.now())
+                    # Get history for current hour only
+                    hour_start = now.replace(minute=0, second=0, microsecond=0)
+                    history = ha_client.get_history(entity_id, hour_start, now)
 
-                    # Group by hour and calculate averages
-                    hourly_actual = {}
+                    # Calculate average for current hour
+                    values = []
                     for entry in history:
                         try:
-                            timestamp_str = entry.get('last_changed') or entry.get('last_updated')
-                            if not timestamp_str:
-                                continue
-
-                            timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-                            # Convert to local timezone to get correct hour
-                            local_timestamp = timestamp.astimezone()
-
                             state = entry.get('state')
                             if state in ['unknown', 'unavailable', None]:
                                 continue
@@ -921,50 +923,41 @@ def api_consumption_forecast_chart():
                             if value > 50:
                                 value = value / 1000
 
-                            hour = local_timestamp.hour
-
-                            # Skip future hours (could happen due to timezone issues)
-                            current_hour = datetime.now().hour
-                            if hour > current_hour:
-                                continue
-
-                            if hour not in hourly_actual:
-                                hourly_actual[hour] = []
-                            hourly_actual[hour].append(value)
+                            values.append(value)
                         except:
                             continue
 
-                    # Calculate averages per hour
-                    now = datetime.now()
-                    current_hour = now.hour
-                    current_minute = now.minute
+                    if values:
+                        avg = sum(values) / len(values)
 
-                    for hour in range(24):
-                        if hour in hourly_actual and len(hourly_actual[hour]) > 0:
-                            avg = sum(hourly_actual[hour]) / len(hourly_actual[hour])
+                        # Blend actual data with forecast for smoother display
+                        elapsed_fraction = current_minute / 60.0
+                        remaining_fraction = (60 - current_minute) / 60.0
+                        forecast_value = profile.get(current_hour, avg)
 
-                            # For current hour: blend actual data with forecast
-                            # This prevents unrealistic spikes from temporary high loads
-                            if hour == current_hour and current_minute < 59:
-                                # Calculate weighted average:
-                                # - Use actual average for elapsed minutes
-                                # - Use forecast for remaining minutes
-                                elapsed_fraction = current_minute / 60.0
-                                remaining_fraction = (60 - current_minute) / 60.0
-                                forecast_value = profile.get(hour, avg)  # Fallback to avg if no forecast
-
-                                blended = (avg * elapsed_fraction) + (forecast_value * remaining_fraction)
-                                actual_consumption.append(round(blended, 2))
-                            else:
-                                actual_consumption.append(round(avg, 2))
-                        elif hour <= current_hour:
-                            # Current or past hour with no data
-                            actual_consumption.append(None)
-                        else:
-                            # Future hour - don't show any line
-                            actual_consumption.append(None)
+                        current_hour_live_value = (avg * elapsed_fraction) + (forecast_value * remaining_fraction)
             except Exception as e:
-                logger.error(f"Error getting actual consumption: {e}")
+                logger.error(f"Error calculating current hour consumption: {e}")
+
+        # Build actual consumption array
+        for hour in range(24):
+            if hour < current_hour:
+                # Past hours: use DB value if available
+                if hour in today_db_consumption:
+                    actual_consumption.append(round(today_db_consumption[hour], 2))
+                else:
+                    actual_consumption.append(None)
+            elif hour == current_hour:
+                # Current hour: use live blended value or DB value
+                if current_hour_live_value is not None:
+                    actual_consumption.append(round(current_hour_live_value, 2))
+                elif hour in today_db_consumption:
+                    actual_consumption.append(round(today_db_consumption[hour], 2))
+                else:
+                    actual_consumption.append(None)
+            else:
+                # Future hours: no actual data
+                actual_consumption.append(None)
 
         # Format for chart: labels (hours) and data (consumption in kW)
         hours = []
