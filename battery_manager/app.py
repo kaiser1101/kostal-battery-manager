@@ -181,6 +181,7 @@ try:
         from .core.ha_client import HomeAssistantClient
         from .core.tibber_optimizer import TibberOptimizer
         from .core.consumption_learner import ConsumptionLearner
+        from .core.forecast_solar_api import ForecastSolarAPI  # v0.9.2
     except ImportError:
         # Fall back to absolute import
         import sys
@@ -190,6 +191,7 @@ try:
         from core.ha_client import HomeAssistantClient
         from core.tibber_optimizer import TibberOptimizer
         from core.consumption_learner import ConsumptionLearner
+        from core.forecast_solar_api import ForecastSolarAPI  # v0.9.2
     
     # Initialize components
     kostal_api = KostalAPI(
@@ -249,6 +251,30 @@ try:
         # Connect consumption learner to optimizer
         if tibber_optimizer:
             tibber_optimizer.set_consumption_learner(consumption_learner)
+
+    # v0.9.2 - Initialize Forecast.Solar Professional API if enabled
+    forecast_solar_api = None
+    if config.get('enable_forecast_solar_api', False):
+        try:
+            api_key = config.get('forecast_solar_api_key')
+            latitude = config.get('forecast_solar_latitude')
+            longitude = config.get('forecast_solar_longitude')
+
+            if api_key and latitude is not None and longitude is not None:
+                forecast_solar_api = ForecastSolarAPI(api_key, latitude, longitude)
+
+                # Connect to optimizer
+                if tibber_optimizer:
+                    tibber_optimizer.set_forecast_solar_api(forecast_solar_api)
+
+                add_log('INFO', f'Forecast.Solar Professional API enabled (lat={latitude}, lon={longitude})')
+            else:
+                logger.warning("Forecast.Solar API enabled but missing configuration (api_key, latitude, longitude)")
+                add_log('WARNING', 'Forecast.Solar API: Missing configuration parameters')
+
+        except Exception as e:
+            logger.error(f"Error initializing Forecast.Solar API: {e}")
+            add_log('ERROR', f'Failed to initialize Forecast.Solar API: {str(e)}')
 
     add_log('INFO', 'Components initialized successfully')
     add_log('INFO', 'Tibber Optimizer initialized')
