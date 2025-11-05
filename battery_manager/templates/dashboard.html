@@ -412,7 +412,7 @@ function startCharging() {
     if (confirm(`Batterie mit ${power}W laden?`)) {
         showLoading('Starte Ladung...');
 
-        fetch(apiUrl('api/control', {
+        fetch(apiUrl('api/control'), {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({action: 'start_charging', power: parseInt(power)})
@@ -435,7 +435,7 @@ function stopCharging() {
     if (confirm('Ladung stoppen und zurück zur internen Steuerung?')) {
         showLoading('Stoppe Ladung...');
 
-        fetch(apiUrl('api/control', {
+        fetch(apiUrl('api/control'), {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({action: 'stop_charging'})
@@ -457,7 +457,7 @@ function stopCharging() {
 function autoMode() {
     showLoading('Aktiviere Automatik...');
 
-    fetch(apiUrl('api/control', {
+    fetch(apiUrl('api/control'), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({action: 'auto_mode'})
@@ -477,7 +477,7 @@ function autoMode() {
 
 // v0.2.5 - Toggle automation on/off
 function toggleAutomation(enabled) {
-    fetch(apiUrl('api/control', {
+    fetch(apiUrl('api/control'), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({action: 'toggle_automation', enabled: enabled})
@@ -503,7 +503,7 @@ function adjustPowerIfCharging(power) {
         .then(data => {
             if (data.inverter.mode === 'manual_charging' || data.inverter.mode === 'auto_charging') {
                 // Adjust power
-                fetch(apiUrl('api/adjust_power', {
+                fetch(apiUrl('api/adjust_power'), {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({power: parseInt(power)})
@@ -529,7 +529,7 @@ function adjustPowerIfCharging(power) {
 function recalculatePlan() {
     showLoading('Berechne Ladeplan...');
 
-    fetch(apiUrl('api/recalculate_plan', {
+    fetch(apiUrl('api/recalculate_plan'), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({})
