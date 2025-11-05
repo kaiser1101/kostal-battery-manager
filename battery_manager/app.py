@@ -263,11 +263,41 @@ try:
             if api_key and latitude is not None and longitude is not None:
                 forecast_solar_api = ForecastSolarAPI(api_key, latitude, longitude)
 
+                # Build planes list from individual roof configurations
+                planes = []
+
+                # Roof 1
+                roof1_dec = config.get('forecast_solar_roof1_declination')
+                roof1_azi = config.get('forecast_solar_roof1_azimuth')
+                roof1_kwp = config.get('forecast_solar_roof1_kwp')
+                if roof1_dec is not None and roof1_azi is not None and roof1_kwp is not None:
+                    planes.append({
+                        'declination': roof1_dec,
+                        'azimuth': roof1_azi,
+                        'kwp': roof1_kwp
+                    })
+                    logger.info(f"Forecast.Solar Roof 1: {roof1_kwp} kWp, azimuth={roof1_azi}°, tilt={roof1_dec}°")
+
+                # Roof 2
+                roof2_dec = config.get('forecast_solar_roof2_declination')
+                roof2_azi = config.get('forecast_solar_roof2_azimuth')
+                roof2_kwp = config.get('forecast_solar_roof2_kwp')
+                if roof2_dec is not None and roof2_azi is not None and roof2_kwp is not None:
+                    planes.append({
+                        'declination': roof2_dec,
+                        'azimuth': roof2_azi,
+                        'kwp': roof2_kwp
+                    })
+                    logger.info(f"Forecast.Solar Roof 2: {roof2_kwp} kWp, azimuth={roof2_azi}°, tilt={roof2_dec}°")
+
+                # Store planes in config for later use
+                config['forecast_solar_planes'] = planes
+
                 # Connect to optimizer
                 if tibber_optimizer:
                     tibber_optimizer.set_forecast_solar_api(forecast_solar_api)
 
-                add_log('INFO', f'Forecast.Solar Professional API enabled (lat={latitude}, lon={longitude})')
+                add_log('INFO', f'Forecast.Solar Professional API enabled (lat={latitude}, lon={longitude}, {len(planes)} roofs)')
             else:
                 logger.warning("Forecast.Solar API enabled but missing configuration (api_key, latitude, longitude)")
                 add_log('WARNING', 'Forecast.Solar API: Missing configuration parameters')
