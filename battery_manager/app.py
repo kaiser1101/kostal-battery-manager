@@ -41,20 +41,16 @@ def inject_base_path():
     # Example: X-Ingress-Path: /api/hassio_ingress/1ytBWj2lv6Xc0Uy7veOWxrVwNgRR09z7NsoXmLVe9tM
     base_path = request.environ.get('SCRIPT_NAME', '')
 
-    logger.info(f"[Context Processor] Initial SCRIPT_NAME: '{base_path}'")
-
     if not base_path or base_path == '':
         # Check for Home Assistant Ingress header
         ingress_path = request.headers.get('X-Ingress-Path', '')
-        logger.info(f"[Context Processor] X-Ingress-Path header: '{ingress_path}'")
         if ingress_path:
             # Use the Ingress path as base_path
             base_path = ingress_path
             # Set SCRIPT_NAME so url_for() generates correct URLs
             request.environ['SCRIPT_NAME'] = base_path
-            logger.info(f"✅ [Context Processor] Set base_path to: '{base_path}'")
+            logger.debug(f"Ingress detected: {base_path}")
 
-    logger.info(f"[Context Processor] Returning base_path: '{base_path}'")
     return dict(base_path=base_path)
 
 app.config['SECRET_KEY'] = os.urandom(24)
@@ -62,17 +58,6 @@ app.config['SECRET_KEY'] = os.urandom(24)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.jinja_env.auto_reload = True
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
-
-# Add response headers to prevent caching
-@app.after_request
-def add_cache_control_headers(response):
-    """Add no-cache headers to all responses"""
-    if request.path.startswith('/static/'):
-        # For static files, add no-cache to force reload
-        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
-    return response
 
 # Configuration
 CONFIG_PATH = os.getenv('CONFIG_PATH', '/data/options.json')

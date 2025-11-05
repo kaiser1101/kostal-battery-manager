@@ -646,3 +646,26 @@ footer {
         opacity: 1;
     }
 }
+
+/* Chart Cards - Full width on large screens, responsive on smaller screens */
+.chart-card {
+    grid-column: span 4;
+}
+
+@media (max-width: 1200px) {
+    .chart-card {
+        grid-column: span 3;
+    }
+}
+
+@media (max-width: 900px) {
+    .chart-card {
+        grid-column: span 2;
+    }
+}
+
+@media (max-width: 600px) {
+    .chart-card {
+        grid-column: span 1;
+    }
+}
