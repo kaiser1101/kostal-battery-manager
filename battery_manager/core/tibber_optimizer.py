@@ -19,17 +19,25 @@ class TibberOptimizer:
         self.threshold_3h = config.get('tibber_price_threshold_3h', 8) / 100
         self.charge_duration_per_10 = config.get('charge_duration_per_10_percent', 18)
         self.consumption_learner = None  # v0.4.0
+        self.forecast_solar_api = None  # v0.9.2
 
     def set_consumption_learner(self, learner):
         """Set consumption learner for advanced optimization (v0.4.0)"""
         self.consumption_learner = learner
         logger.info("Consumption learner integrated into optimizer")
 
+    def set_forecast_solar_api(self, api):
+        """Set Forecast.Solar API client for PV forecasts (v0.9.2)"""
+        self.forecast_solar_api = api
+        logger.info("Forecast.Solar API integrated into optimizer")
+
     def get_hourly_pv_forecast(self, ha_client, config) -> Dict[int, float]:
         """
-        Get hourly PV forecast from forecast.solar sensors (v0.8.1)
+        Get hourly PV forecast (v0.9.2: now supports Forecast.Solar API)
 
-        Parses wh_hours attribute from both roof sensors and combines them.
+        Priority:
+        1. Forecast.Solar Professional API (if enabled and configured)
+        2. Home Assistant sensors with wh_hours attribute (fallback)
 
         Args:
             ha_client: Home Assistant client instance
@@ -38,6 +46,27 @@ class TibberOptimizer:
         Returns:
             dict: {hour: kwh_forecast} for each hour of the day
         """
+        # v0.9.2 - Try Forecast.Solar API first if enabled
+        if (self.forecast_solar_api and
+            config.get('enable_forecast_solar_api', False)):
+
+            logger.debug("Using Forecast.Solar Professional API for PV forecast")
+
+            planes = config.get('forecast_solar_planes', [])
+            if planes:
+                try:
+                    hourly_forecast = self.forecast_solar_api.get_hourly_forecast(planes)
+                    if hourly_forecast:
+                        return hourly_forecast
+                    else:
+                        logger.warning("Forecast.Solar API returned no data, falling back to sensors")
+                except Exception as e:
+                    logger.error(f"Error using Forecast.Solar API: {e}, falling back to sensors")
+            else:
+                logger.warning("Forecast.Solar API enabled but no planes configured")
+
+        # Fallback: Use Home Assistant sensors (original v0.8.1 method)
+        logger.debug("Using Home Assistant sensors for PV forecast")
         hourly_forecast = {}
 
         # Get sensor names from config

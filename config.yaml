@@ -1,5 +1,5 @@
 name: Kostal Battery Manager
-version: "0.9.1"
+version: "0.9.2"
 slug: kostal_battery_manager
 description: "Intelligente Batteriesteuerung für Kostal Plenticore Plus mit Tibber-Optimierung, Verbrauchslernen, prädiktiver Ganztags-Planung und Grafiken"
 url: "https://github.com/SvenSteuer/kostal-battery-manager"
@@ -59,6 +59,20 @@ options:
   pv_production_tomorrow_roof2: "sensor.energy_production_tomorrow_roof2"
   pv_next_hour_roof1: "sensor.energy_next_hour_roof1"
   pv_next_hour_roof2: "sensor.energy_next_hour_roof2"
+  # v0.9.2 - Forecast.Solar Professional API (replaces sensor-based PV forecast)
+  # Enable this for accurate hourly PV forecasts with your Professional subscription
+  enable_forecast_solar_api: true
+  forecast_solar_api_key: "3Ur5qvjhNRMhGhXm"
+  forecast_solar_latitude: 50.992
+  forecast_solar_longitude: 7.467
+  # Define your PV planes (roof orientations)
+  forecast_solar_planes:
+    - declination: 22    # Roof tilt angle (0-90°)
+      azimuth: 45        # Orientation (-180 to 180°: 0=South, 90=West, -90=East)
+      kwp: 8.96          # Peak power in kWp
+    - declination: 22
+      azimuth: -135      # Second roof facing different direction
+      kwp: 10.665
   # v0.3.0 - Tibber Smart Charging
   tibber_price_threshold_1h: 8  # Prozent: Preisanstieg zur vorherigen Stunde
   tibber_price_threshold_3h: 8  # Prozent: 3h Block Vergleich
