@@ -44,6 +44,8 @@ class TibberOptimizer:
         roof1_sensor = config.get('pv_production_today_roof1')
         roof2_sensor = config.get('pv_production_today_roof2')
 
+        logger.debug(f"PV forecast sensors: roof1='{roof1_sensor}', roof2='{roof2_sensor}'")
+
         if not roof1_sensor and not roof2_sensor:
             logger.warning("No PV forecast sensors configured")
             return {}
@@ -54,55 +56,69 @@ class TibberOptimizer:
 
             # Process roof 1
             if roof1_sensor:
+                logger.debug(f"Fetching attributes from {roof1_sensor}")
                 attrs = ha_client.get_attributes(roof1_sensor)
-                if attrs and 'wh_hours' in attrs:
-                    wh_hours = attrs['wh_hours']
-                    logger.debug(f"Roof1 wh_hours has {len(wh_hours)} entries")
+                if attrs:
+                    logger.debug(f"Roof1 attributes keys: {list(attrs.keys())}")
+                    if 'wh_hours' in attrs:
+                        wh_hours = attrs['wh_hours']
+                        logger.debug(f"Roof1 wh_hours has {len(wh_hours)} entries")
 
-                    for timestamp_str, wh_value in wh_hours.items():
-                        try:
-                            # Parse timestamp
-                            dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        for timestamp_str, wh_value in wh_hours.items():
+                            try:
+                                # Parse timestamp
+                                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
 
-                            # Only process today's data
-                            if dt.date() != today:
+                                # Only process today's data
+                                if dt.date() != today:
+                                    continue
+
+                                hour = dt.hour
+                                kwh = float(wh_value) / 1000.0  # Wh to kWh
+
+                                # Add to hourly forecast
+                                hourly_forecast[hour] = hourly_forecast.get(hour, 0.0) + kwh
+
+                            except (ValueError, TypeError) as e:
+                                logger.warning(f"Error parsing wh_hours entry {timestamp_str}: {e}")
                                 continue
-
-                            hour = dt.hour
-                            kwh = float(wh_value) / 1000.0  # Wh to kWh
-
-                            # Add to hourly forecast
-                            hourly_forecast[hour] = hourly_forecast.get(hour, 0.0) + kwh
-
-                        except (ValueError, TypeError) as e:
-                            logger.warning(f"Error parsing wh_hours entry {timestamp_str}: {e}")
-                            continue
+                    else:
+                        logger.warning(f"Roof1 sensor {roof1_sensor} has no 'wh_hours' attribute")
+                else:
+                    logger.warning(f"Could not get attributes for roof1 sensor {roof1_sensor}")
 
             # Process roof 2
             if roof2_sensor:
+                logger.debug(f"Fetching attributes from {roof2_sensor}")
                 attrs = ha_client.get_attributes(roof2_sensor)
-                if attrs and 'wh_hours' in attrs:
-                    wh_hours = attrs['wh_hours']
-                    logger.debug(f"Roof2 wh_hours has {len(wh_hours)} entries")
+                if attrs:
+                    logger.debug(f"Roof2 attributes keys: {list(attrs.keys())}")
+                    if 'wh_hours' in attrs:
+                        wh_hours = attrs['wh_hours']
+                        logger.debug(f"Roof2 wh_hours has {len(wh_hours)} entries")
 
-                    for timestamp_str, wh_value in wh_hours.items():
-                        try:
-                            # Parse timestamp
-                            dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                        for timestamp_str, wh_value in wh_hours.items():
+                            try:
+                                # Parse timestamp
+                                dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
 
-                            # Only process today's data
-                            if dt.date() != today:
+                                # Only process today's data
+                                if dt.date() != today:
+                                    continue
+
+                                hour = dt.hour
+                                kwh = float(wh_value) / 1000.0  # Wh to kWh
+
+                                # Add to hourly forecast
+                                hourly_forecast[hour] = hourly_forecast.get(hour, 0.0) + kwh
+
+                            except (ValueError, TypeError) as e:
+                                logger.warning(f"Error parsing wh_hours entry {timestamp_str}: {e}")
                                 continue
-
-                            hour = dt.hour
-                            kwh = float(wh_value) / 1000.0  # Wh to kWh
-
-                            # Add to hourly forecast
-                            hourly_forecast[hour] = hourly_forecast.get(hour, 0.0) + kwh
-
-                        except (ValueError, TypeError) as e:
-                            logger.warning(f"Error parsing wh_hours entry {timestamp_str}: {e}")
-                            continue
+                    else:
+                        logger.warning(f"Roof2 sensor {roof2_sensor} has no 'wh_hours' attribute")
+                else:
+                    logger.warning(f"Could not get attributes for roof2 sensor {roof2_sensor}")
 
             if hourly_forecast:
                 logger.info(f"Retrieved hourly PV forecast for {len(hourly_forecast)} hours")
@@ -274,10 +290,17 @@ class TibberOptimizer:
                 # Price (find matching hour from Tibber data)
                 price = 0.30  # Default fallback
                 for p in prices:
-                    price_time = p['datetime']
-                    if price_time.hour == hour and price_time.date() == today:
-                        price = p['total']
-                        break
+                    # Tibber uses 'startsAt' key, not 'datetime'
+                    start_time = p.get('startsAt', '')
+                    if start_time:
+                        try:
+                            price_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                            price_dt = price_dt.astimezone()  # Convert to local timezone
+                            if price_dt.hour == hour and price_dt.date() == today:
+                                price = p.get('total', 0.30)
+                                break
+                        except Exception:
+                            continue
                 hourly_prices.append(price)
 
             logger.info(f"Planning battery schedule for {today}")
