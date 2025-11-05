@@ -521,11 +521,20 @@ class ConsumptionLearner:
                           f"Skipping (likely Kostal Smart Meter bug)")
             return
 
-        # Validate: unrealistic high values (> 50 kWh/h suggests error)
-        if consumption_kwh > 50:
-            logger.warning(f"Unrealistically high consumption value: {consumption_kwh} kWh at {timestamp.strftime('%Y-%m-%d %H:%M')} - "
-                          f"Skipping (likely sensor error)")
+        # Validate: unrealistic high values (> 100 kWh/h suggests wrong sensor type)
+        if consumption_kwh > 100:
+            logger.error(f"⚠️ CONFIGURATION ERROR: Sensor value {consumption_kwh} kWh is too high! "
+                        f"You likely configured a cumulative TOTAL energy sensor (Gesamtverbrauch) "
+                        f"instead of a POWER or hourly ENERGY sensor. "
+                        f"Please use a sensor that measures instantaneous power (W) or energy per time period (kWh/h), "
+                        f"NOT a cumulative total counter.")
             return
+
+        # Validate: high but possible values (50-100 kWh/h)
+        if consumption_kwh > 50:
+            logger.warning(f"Very high consumption value: {consumption_kwh} kWh at {timestamp.strftime('%Y-%m-%d %H:%M')} - "
+                          f"Recording but please verify your sensor configuration is correct")
+            # Continue recording despite warning
 
         hour = timestamp.hour
 

@@ -139,11 +139,35 @@ header {
     font-size: 1.3rem;
 }
 
-/* Dashboard Grid */
+/* Dashboard Grid - 4 columns on large screens */
 .dashboard {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    grid-template-columns: repeat(4, 1fr);
     gap: 1.5rem;
+}
+
+/* Regular cards span 1 column by default */
+.dashboard > .card {
+    grid-column: span 1;
+}
+
+/* Responsive grid - reduce columns on smaller screens */
+@media (max-width: 1400px) {
+    .dashboard {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 1000px) {
+    .dashboard {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 650px) {
+    .dashboard {
+        grid-template-columns: repeat(1, 1fr);
+    }
 }
 
 /* Status Items */
@@ -647,25 +671,26 @@ footer {
     }
 }
 
-/* Chart Cards - Full width on large screens, responsive on smaller screens */
+/* Chart Cards - Full width across all columns */
 .chart-card {
-    grid-column: span 4;
+    grid-column: 1 / -1;  /* Span from first to last column */
 }
 
-@media (max-width: 1200px) {
+/* Ensure charts stay full width at all breakpoints */
+@media (max-width: 1400px) {
     .chart-card {
-        grid-column: span 3;
+        grid-column: 1 / -1;
     }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
     .chart-card {
-        grid-column: span 2;
+        grid-column: 1 / -1;
     }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 650px) {
     .chart-card {
-        grid-column: span 1;
+        grid-column: 1 / -1;
     }
 }
