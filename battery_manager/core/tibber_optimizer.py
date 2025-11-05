@@ -6,7 +6,7 @@ Portiert von Home Assistant Automationen
 
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,97 @@ class TibberOptimizer:
         """Set consumption learner for advanced optimization (v0.4.0)"""
         self.consumption_learner = learner
         logger.info("Consumption learner integrated into optimizer")
+
+    def get_hourly_pv_forecast(self, ha_client, config) -> Dict[int, float]:
+        """
+        Get hourly PV forecast from forecast.solar sensors (v0.8.1)
+
+        Parses wh_hours attribute from both roof sensors and combines them.
+
+        Args:
+            ha_client: Home Assistant client instance
+            config: Configuration dict with sensor names
+
+        Returns:
+            dict: {hour: kwh_forecast} for each hour of the day
+        """
+        hourly_forecast = {}
+
+        # Get sensor names from config
+        roof1_sensor = config.get('pv_production_today_roof1')
+        roof2_sensor = config.get('pv_production_today_roof2')
+
+        if not roof1_sensor and not roof2_sensor:
+            logger.warning("No PV forecast sensors configured")
+            return {}
+
+        try:
+            # Get today's date for filtering
+            today = datetime.now().astimezone().date()
+
+            # Process roof 1
+            if roof1_sensor:
+                attrs = ha_client.get_attributes(roof1_sensor)
+                if attrs and 'wh_hours' in attrs:
+                    wh_hours = attrs['wh_hours']
+                    logger.debug(f"Roof1 wh_hours has {len(wh_hours)} entries")
+
+                    for timestamp_str, wh_value in wh_hours.items():
+                        try:
+                            # Parse timestamp
+                            dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+
+                            # Only process today's data
+                            if dt.date() != today:
+                                continue
+
+                            hour = dt.hour
+                            kwh = float(wh_value) / 1000.0  # Wh to kWh
+
+                            # Add to hourly forecast
+                            hourly_forecast[hour] = hourly_forecast.get(hour, 0.0) + kwh
+
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Error parsing wh_hours entry {timestamp_str}: {e}")
+                            continue
+
+            # Process roof 2
+            if roof2_sensor:
+                attrs = ha_client.get_attributes(roof2_sensor)
+                if attrs and 'wh_hours' in attrs:
+                    wh_hours = attrs['wh_hours']
+                    logger.debug(f"Roof2 wh_hours has {len(wh_hours)} entries")
+
+                    for timestamp_str, wh_value in wh_hours.items():
+                        try:
+                            # Parse timestamp
+                            dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+
+                            # Only process today's data
+                            if dt.date() != today:
+                                continue
+
+                            hour = dt.hour
+                            kwh = float(wh_value) / 1000.0  # Wh to kWh
+
+                            # Add to hourly forecast
+                            hourly_forecast[hour] = hourly_forecast.get(hour, 0.0) + kwh
+
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Error parsing wh_hours entry {timestamp_str}: {e}")
+                            continue
+
+            if hourly_forecast:
+                logger.info(f"Retrieved hourly PV forecast for {len(hourly_forecast)} hours")
+                logger.debug(f"PV forecast: {hourly_forecast}")
+            else:
+                logger.warning("No hourly PV forecast data available")
+
+            return hourly_forecast
+
+        except Exception as e:
+            logger.error(f"Error getting hourly PV forecast: {e}")
+            return {}
 
     def find_optimal_charge_end_time(self, prices: List[Dict]) -> Optional[datetime]:
         """
@@ -119,11 +210,83 @@ class TibberOptimizer:
 
         return charge_start
 
+    def predict_short_term_deficit(self,
+                                   ha_client,
+                                   config,
+                                   lookahead_hours: int = 3) -> Tuple[bool, float, str]:
+        """
+        Predicts short-term energy deficit using hourly PV forecast (v0.8.1)
+
+        Uses granular hourly forecast from forecast.solar instead of broad daily check.
+        More intelligent than the old 6:00-18:00 approach.
+
+        Args:
+            ha_client: Home Assistant client for fetching sensor data
+            config: Configuration dict with sensor names
+            lookahead_hours: How many hours to look ahead (default: 3)
+
+        Returns:
+            (has_deficit: bool, deficit_kwh: float, reason: str)
+        """
+        if not self.consumption_learner:
+            logger.warning("No consumption learner available, using fallback")
+            return False, 0.0, "No consumption learning data"
+
+        try:
+            now = datetime.now().astimezone()
+            current_hour = now.hour
+
+            # Get hourly PV forecast
+            pv_forecast = self.get_hourly_pv_forecast(ha_client, config)
+
+            if not pv_forecast:
+                logger.warning("No PV forecast available, cannot predict deficit")
+                return False, 0.0, "No PV forecast data"
+
+            # Calculate consumption and PV production for next N hours
+            total_consumption = 0.0
+            total_pv = 0.0
+
+            for i in range(lookahead_hours):
+                future_hour = (current_hour + i) % 24
+                future_date = (now + timedelta(hours=i)).date()
+
+                # Get predicted consumption for this hour
+                hour_consumption = self.consumption_learner.get_average_consumption(
+                    future_hour,
+                    target_date=future_date
+                )
+                total_consumption += hour_consumption
+
+                # Get PV forecast for this hour
+                hour_pv = pv_forecast.get(future_hour, 0.0)
+                total_pv += hour_pv
+
+                logger.debug(f"Hour {future_hour}: Consumption={hour_consumption:.2f} kWh, "
+                           f"PV={hour_pv:.2f} kWh")
+
+            # Calculate deficit
+            deficit = total_consumption - total_pv
+            has_deficit = deficit > 0.5  # At least 0.5 kWh gap
+
+            reason = (f"Next {lookahead_hours}h: Consumption={total_consumption:.1f} kWh, "
+                     f"PV={total_pv:.1f} kWh, Deficit={deficit:.1f} kWh")
+
+            logger.info(f"Short-term deficit check: {reason}")
+
+            return has_deficit, max(0, deficit), reason
+
+        except Exception as e:
+            logger.error(f"Error predicting short-term deficit: {e}")
+            return False, 0.0, f"Error: {e}"
+
     def predict_energy_deficit(self,
                               pv_remaining: float,
                               current_hour: int = None) -> tuple[bool, float]:
         """
         Predicts if there will be an energy deficit based on consumption learning.
+
+        DEPRECATED: Use predict_short_term_deficit() for more granular forecasting (v0.8.1)
 
         Args:
             pv_remaining: Expected PV production remaining today (kWh)
@@ -168,9 +331,20 @@ class TibberOptimizer:
                          current_soc: float,
                          min_soc: float,
                          max_soc: float,
-                         pv_remaining: float) -> tuple[bool, str]:
+                         pv_remaining: float = None,
+                         ha_client=None,
+                         config: Dict = None) -> tuple[bool, str]:
         """
         Entscheidet ob jetzt geladen werden soll.
+
+        Args:
+            planned_start: Planned charging start time
+            current_soc: Current battery SOC (%)
+            min_soc: Minimum SOC threshold (%)
+            max_soc: Maximum SOC threshold (%)
+            pv_remaining: (DEPRECATED) Total PV remaining today - use ha_client + config instead
+            ha_client: Home Assistant client for hourly forecast (v0.8.1)
+            config: Configuration dict for sensor names (v0.8.1)
 
         Returns:
             (should_charge: bool, reason: str)
@@ -186,15 +360,37 @@ class TibberOptimizer:
         if current_soc >= max_soc:
             return False, f"Battery full ({current_soc}% >= {max_soc}%)"
 
-        # v0.4.0 - Check energy deficit based on consumption learning
-        has_deficit, deficit_kwh = self.predict_energy_deficit(pv_remaining)
+        # v0.8.1 - Use short-term deficit prediction with hourly forecasts
+        if ha_client and config:
+            has_deficit, deficit_kwh, reason = self.predict_short_term_deficit(
+                ha_client, config, lookahead_hours=3
+            )
 
-        if not has_deficit:
-            # Sufficient energy expected (PV covers consumption)
-            return False, f"Energy balance positive (PV {pv_remaining:.1f} kWh covers consumption)"
+            if not has_deficit:
+                # Sufficient energy expected for next 3 hours
+                return False, f"No short-term deficit: {reason}"
 
-        # Geplanter Ladezeitpunkt erreicht?
-        if planned_start and now >= planned_start:
-            return True, f"Planned charging time reached (deficit: {deficit_kwh:.1f} kWh)"
+            # Geplanter Ladezeitpunkt erreicht?
+            if planned_start and now >= planned_start:
+                return True, f"Planned charging time reached - {reason}"
 
-        return False, f"Waiting for optimal charging window (deficit: {deficit_kwh:.1f} kWh)"
+            return False, f"Deficit detected but waiting for optimal window - {reason}"
+
+        # Fallback to old method if no HA client provided
+        elif pv_remaining is not None:
+            # v0.4.0 - Check energy deficit based on consumption learning (DEPRECATED)
+            has_deficit, deficit_kwh = self.predict_energy_deficit(pv_remaining)
+
+            if not has_deficit:
+                # Sufficient energy expected (PV covers consumption)
+                return False, f"Energy balance positive (PV {pv_remaining:.1f} kWh covers consumption)"
+
+            # Geplanter Ladezeitpunkt erreicht?
+            if planned_start and now >= planned_start:
+                return True, f"Planned charging time reached (deficit: {deficit_kwh:.1f} kWh)"
+
+            return False, f"Waiting for optimal charging window (deficit: {deficit_kwh:.1f} kWh)"
+
+        else:
+            logger.warning("No PV data provided to should_charge_now, cannot make decision")
+            return False, "Insufficient data for charging decision"

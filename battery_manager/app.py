@@ -1662,23 +1662,20 @@ def controller_loop():
                         min_soc = config.get('auto_safety_soc', 20)
                         max_soc = config.get('auto_charge_below_soc', 95)
 
-                        # Hole verbleibende PV-Prognose
-                        pv_remaining = 0
-                        for roof in ['roof1', 'roof2']:
-                            sensor = config.get(f'pv_remaining_today_{roof}')
-                            if sensor:
-                                remaining = ha_client.get_state(sensor)
-                                if remaining and remaining not in ['unknown', 'unavailable']:
-                                    pv_remaining += float(remaining)
-
                         # Parse planned start time
                         planned_start = None
                         if app_state['charging_plan']['planned_start']:
                             planned_start = datetime.fromisoformat(app_state['charging_plan']['planned_start'])
 
-                        # Entscheide ob geladen werden soll
+                        # v0.8.1 - Use short-term forecast with hourly granularity
+                        # This replaces the old pv_remaining approach with intelligent lookahead
                         should_charge, reason = tibber_optimizer.should_charge_now(
-                            planned_start, current_soc, min_soc, max_soc, pv_remaining
+                            planned_start=planned_start,
+                            current_soc=current_soc,
+                            min_soc=min_soc,
+                            max_soc=max_soc,
+                            ha_client=ha_client,
+                            config=config
                         )
 
                         # Aktion ausführen
