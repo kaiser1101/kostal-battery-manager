@@ -370,7 +370,7 @@ function uploadCSV() {
 function loadData() {
     showLoading('Lade Daten...');
 
-    fetch(apiUrl('api/consumption_data')
+    fetch(apiUrl('api/consumption_data'))
     .then(response => response.json())
     .then(data => {
         hideLoading();
