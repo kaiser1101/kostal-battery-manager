@@ -265,7 +265,7 @@ updateChargingStatus(); // v0.3.6
 
 // v0.3.6 - Update charging status explanation
 function updateChargingStatus() {
-    fetch(apiUrl('api/charging_status')
+    fetch(apiUrl('api/charging_status'))
         .then(response => response.json())
         .then(data => {
             // Update explanation text
@@ -320,7 +320,7 @@ function updateChargingStatus() {
 setInterval(updateChargingStatus, 5000);
 
 function updateStatus() {
-    fetch(apiUrl('api/status')
+    fetch(apiUrl('api/status'))
         .then(response => response.json())
         .then(data => {
             // Update connection status
@@ -498,7 +498,7 @@ function toggleAutomation(enabled) {
 // v0.2.0: Adjust power during active charging
 function adjustPowerIfCharging(power) {
     // Check if currently charging
-    fetch(apiUrl('api/status')
+    fetch(apiUrl('api/status'))
         .then(response => response.json())
         .then(data => {
             if (data.inverter.mode === 'manual_charging' || data.inverter.mode === 'auto_charging') {
@@ -557,7 +557,7 @@ function recalculatePlan() {
 
 // v0.4.0 - Update consumption learning statistics
 function updateLearningStats() {
-    fetch(apiUrl('api/consumption_learning')
+    fetch(apiUrl('api/consumption_learning'))
         .then(response => response.json())
         .then(data => {
             if (data.enabled && data.statistics) {
@@ -735,7 +735,7 @@ function initCharts() {
 }
 
 function updatePriceChart() {
-    fetch(apiUrl('api/tibber_price_chart')
+    fetch(apiUrl('api/tibber_price_chart'))
         .then(response => response.json())
         .then(data => {
             if (data.success && priceChart) {
@@ -760,7 +760,7 @@ function updatePriceChart() {
 }
 
 function updateConsumptionChart() {
-    fetch(apiUrl('api/consumption_forecast_chart')
+    fetch(apiUrl('api/consumption_forecast_chart'))
         .then(response => response.json())
         .then(data => {
             if (data.success && consumptionChart) {
