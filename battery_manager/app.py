@@ -63,6 +63,17 @@ app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.jinja_env.auto_reload = True
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 
+# Add response headers to prevent caching
+@app.after_request
+def add_cache_control_headers(response):
+    """Add no-cache headers to all responses"""
+    if request.path.startswith('/static/'):
+        # For static files, add no-cache to force reload
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
 # Configuration
 CONFIG_PATH = os.getenv('CONFIG_PATH', '/data/options.json')
 
