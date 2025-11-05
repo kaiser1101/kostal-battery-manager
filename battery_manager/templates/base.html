@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Kostal Battery Manager{% endblock %}</title>
     {% block head %}{% endblock %}
-    <link rel="stylesheet" href="{{ base_path }}/static/css/style.css">
-    <link rel="icon" type="image/png" href="{{ base_path }}/static/img/icon.png">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/icon.png') }}">
 </head>
 <body>
     <header>
@@ -29,9 +29,22 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <!-- Set BASE_PATH for API calls to work with Ingress -->
     <script>
-        window.BASE_PATH = '{{ base_path }}';
+        window.BASE_PATH = '{{ base_path }}' || '';
+        // Helper function to construct API URLs correctly with or without Ingress prefix
+        window.apiUrl = function(path) {
+            // Remove leading slash from path if present
+            const cleanPath = path.startsWith('/') ? path.substring(1) : path;
+            // If BASE_PATH is empty, just return the path with leading slash
+            if (!window.BASE_PATH || window.BASE_PATH === '') {
+                return '/' + cleanPath;
+            }
+            // Otherwise, combine BASE_PATH with path
+            return window.BASE_PATH + '/' + cleanPath;
+        };
+        console.log('BASE_PATH:', window.BASE_PATH);
+        console.log('Test apiUrl("api/status"):', window.apiUrl('api/status'));
     </script>
-    <script src="{{ base_path }}/static/js/app.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>
