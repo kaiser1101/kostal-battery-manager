@@ -1489,6 +1489,119 @@ def get_charging_status_explanation():
         }
 
 
+def get_consumption_kwh(ha_client, consumption_sensor, timestamp):
+    """
+    Get consumption in kWh for recording, handling both power (W/kW) and energy (kWh) sensors.
+
+    For power sensors (W/kW): Fetches last hour's history, calculates average, converts to kWh
+    For energy sensors (kWh): Returns current value directly
+
+    Args:
+        ha_client: Home Assistant API client
+        consumption_sensor: Sensor entity ID
+        timestamp: Current timestamp
+
+    Returns:
+        float: Consumption in kWh, or None if error/unavailable
+    """
+    try:
+        # Get sensor info with attributes to determine unit
+        sensor_data = ha_client.get_state_with_attributes(consumption_sensor)
+        if not sensor_data:
+            logger.warning(f"Could not get sensor data for {consumption_sensor}")
+            return None
+
+        state = sensor_data.get('state')
+        if state in ['unknown', 'unavailable', None]:
+            logger.debug(f"Sensor {consumption_sensor} unavailable")
+            return None
+
+        # Get unit of measurement
+        attributes = sensor_data.get('attributes', {})
+        unit = attributes.get('unit_of_measurement', '').upper()
+
+        logger.debug(f"Sensor {consumption_sensor}: state={state}, unit={unit}")
+
+        # Handle different units
+        if unit in ['KWH', 'KILOWATTHOUR']:
+            # Energy sensor - use value directly
+            try:
+                consumption_kwh = float(state)
+                logger.debug(f"Energy sensor (kWh): {consumption_kwh} kWh")
+                return consumption_kwh
+            except (ValueError, TypeError):
+                logger.warning(f"Could not convert {state} to float")
+                return None
+
+        elif unit in ['W', 'WATT', 'KW', 'KILOWATT']:
+            # Power sensor - need to calculate average over last hour
+            logger.info(f"Power sensor detected ({unit}) - fetching hourly history for accurate consumption")
+
+            # Calculate time range: from 1 hour ago to now
+            from datetime import timedelta
+            end_time = timestamp
+            start_time = timestamp - timedelta(hours=1)
+
+            # Fetch history
+            history = ha_client.get_history(consumption_sensor, start_time, end_time)
+            if not history or len(history) == 0:
+                logger.warning(f"No history data available for {consumption_sensor}")
+                # Fallback: use current value as snapshot
+                try:
+                    current_value = float(state)
+                    if unit in ['W', 'WATT']:
+                        consumption_kwh = current_value / 1000  # W to kWh (assuming 1 hour)
+                    else:  # kW
+                        consumption_kwh = current_value  # kW * 1h = kWh
+                    logger.warning(f"Using snapshot value: {consumption_kwh:.3f} kWh")
+                    return consumption_kwh
+                except (ValueError, TypeError):
+                    return None
+
+            # Calculate average power from all readings
+            valid_values = []
+            for entry in history:
+                try:
+                    value_state = entry.get('state')
+                    if value_state not in ['unknown', 'unavailable', None, '']:
+                        value = float(value_state)
+
+                        # Skip negative or unrealistically high values
+                        if value < 0:
+                            continue
+                        if value > 1000000:  # > 1 MW seems like an error
+                            continue
+
+                        valid_values.append(value)
+                except (ValueError, TypeError):
+                    continue
+
+            if not valid_values:
+                logger.warning(f"No valid values in history for {consumption_sensor}")
+                return None
+
+            # Calculate average
+            avg_power = sum(valid_values) / len(valid_values)
+
+            # Convert to kWh
+            if unit in ['W', 'WATT']:
+                consumption_kwh = avg_power / 1000  # W to kW, then * 1h = kWh
+            else:  # kW, KILOWATT
+                consumption_kwh = avg_power  # kW * 1h = kWh
+
+            logger.info(f"Calculated from {len(valid_values)} samples: avg={avg_power:.1f} {unit} → {consumption_kwh:.3f} kWh")
+            return consumption_kwh
+
+        else:
+            logger.error(f"⚠️ Unknown sensor unit '{unit}' for {consumption_sensor}. "
+                        f"Expected: W, kW, or kWh. Please check sensor configuration.")
+            return None
+
+    except Exception as e:
+        logger.error(f"Error getting consumption from {consumption_sensor}: {e}", exc_info=True)
+        return None
+
+
 def controller_loop():
     """Background thread for battery control"""
     import time
@@ -1515,7 +1628,7 @@ def controller_loop():
                 update_charging_plan()
                 last_plan_update = now
 
-            # Record consumption periodically (v0.4.0)
+            # Record consumption periodically (v0.4.0, improved in v0.7.13)
             if (consumption_learner and ha_client and
                 config.get('enable_consumption_learning', True)):
                 if (last_consumption_recording is None or
@@ -1523,19 +1636,20 @@ def controller_loop():
                     try:
                         consumption_sensor = config.get('home_consumption_sensor')
                         if consumption_sensor:
-                            consumption = ha_client.get_state(consumption_sensor)
-                            if consumption and consumption not in ['unknown', 'unavailable']:
-                                consumption_kwh = float(consumption)
+                            # Get consumption in kWh, handling W/kW/kWh sensors automatically
+                            consumption_kwh = get_consumption_kwh(ha_client, consumption_sensor, now)
 
+                            if consumption_kwh is not None:
                                 # Warn user if negative value detected (Kostal Smart Meter bug)
                                 if consumption_kwh < 0:
-                                    add_log('WARNING', f'⚠️ Negativer Verbrauchswert vom Sensor: {consumption_kwh} kWh (Kostal Smart Meter Bug - Wert ignoriert)')
+                                    add_log('WARNING', f'⚠️ Negativer Verbrauchswert vom Sensor: {consumption_kwh:.3f} kWh (Kostal Smart Meter Bug - Wert ignoriert)')
+                                else:
+                                    consumption_learner.record_consumption(now, consumption_kwh)
+                                    logger.info(f"✓ Recorded consumption: {consumption_kwh:.3f} kWh at {now.strftime('%H:%M')}")
 
-                                consumption_learner.record_consumption(now, consumption_kwh)
-                                logger.debug(f"Recorded consumption: {consumption_kwh} kWh at {now.strftime('%H:%M')}")
                                 last_consumption_recording = now
                     except Exception as e:
-                        logger.error(f"Error recording consumption: {e}")
+                        logger.error(f"Error recording consumption: {e}", exc_info=True)
 
             if app_state['controller_running'] and config.get('auto_optimization_enabled', True):
                 # v0.3.0 - Intelligent Tibber-based charging
