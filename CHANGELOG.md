@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.5] - 2025-11-05
+
+### Fixed
+- **Home Assistant Repository Detection** - Repository wird nun korrekt von Home Assistant erkannt
+  - `repository.yaml` entfernt (sollte bei Single-Add-on Repositories nicht existieren)
+  - Nur `config.yaml` im Root-Verzeichnis erforderlich
+  - Version-Bump auf 0.9.5 um Home Assistant Cache zu leeren
+
+### Technical
+- Single-Add-on Repository Struktur gemäß Home Assistant Standards
+- Keine `repository.yaml` oder `repository.json` Datei mehr im Root
+
 ## [0.6.4] - 2025-11-04
 
 ### Changed
