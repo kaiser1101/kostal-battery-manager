@@ -41,16 +41,20 @@ def inject_base_path():
     # Example: X-Ingress-Path: /api/hassio_ingress/1ytBWj2lv6Xc0Uy7veOWxrVwNgRR09z7NsoXmLVe9tM
     base_path = request.environ.get('SCRIPT_NAME', '')
 
+    logger.info(f"[Context Processor] Initial SCRIPT_NAME: '{base_path}'")
+
     if not base_path or base_path == '':
         # Check for Home Assistant Ingress header
         ingress_path = request.headers.get('X-Ingress-Path', '')
+        logger.info(f"[Context Processor] X-Ingress-Path header: '{ingress_path}'")
         if ingress_path:
             # Use the Ingress path as base_path
             base_path = ingress_path
             # Set SCRIPT_NAME so url_for() generates correct URLs
             request.environ['SCRIPT_NAME'] = base_path
-            logger.info(f"✅ Detected Ingress prefix from X-Ingress-Path header: {base_path}")
+            logger.info(f"✅ [Context Processor] Set base_path to: '{base_path}'")
 
+    logger.info(f"[Context Processor] Returning base_path: '{base_path}'")
     return dict(base_path=base_path)
 
 app.config['SECRET_KEY'] = os.urandom(24)
@@ -286,27 +290,26 @@ except Exception as e:
 @app.route('/')
 def index():
     """Main dashboard"""
-    # Get base path for Ingress support
-    base_path = request.environ.get('SCRIPT_NAME', '')
-    return render_template('dashboard.html', config=config, state=app_state, base_path=base_path)
+    # base_path is injected by context processor
+    return render_template('dashboard.html', config=config, state=app_state)
 
 @app.route('/config')
 def config_page():
     """Configuration page"""
-    base_path = request.environ.get('SCRIPT_NAME', '')
-    return render_template('config.html', config=config, base_path=base_path)
+    # base_path is injected by context processor
+    return render_template('config.html', config=config)
 
 @app.route('/logs')
 def logs_page():
     """Logs page"""
-    base_path = request.environ.get('SCRIPT_NAME', '')
-    return render_template('logs.html', logs=app_state['logs'], base_path=base_path)
+    # base_path is injected by context processor
+    return render_template('logs.html', logs=app_state['logs'])
 
 @app.route('/consumption_import')
 def consumption_import_page():
     """Consumption data import page (v0.5.0)"""
-    base_path = request.environ.get('SCRIPT_NAME', '')
-    return render_template('consumption_import.html', base_path=base_path)
+    # base_path is injected by context processor
+    return render_template('consumption_import.html')
 
 @app.route('/debug_ingress')
 def debug_ingress():
