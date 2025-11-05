@@ -37,34 +37,19 @@ CORS(app)
 @app.context_processor
 def inject_base_path():
     """Detect Ingress prefix and inject base_path into all templates"""
-    # Check if we're running under Home Assistant Ingress
-    # Ingress URLs look like: /api/hassio_ingress/<token>/...
+    # Home Assistant Ingress sends the prefix in X-Ingress-Path header
+    # Example: X-Ingress-Path: /api/hassio_ingress/1ytBWj2lv6Xc0Uy7veOWxrVwNgRR09z7NsoXmLVe9tM
     base_path = request.environ.get('SCRIPT_NAME', '')
 
-    # DEBUG: Log what Flask sees
-    logger.info(f"=== INGRESS DEBUG ===")
-    logger.info(f"SCRIPT_NAME: {request.environ.get('SCRIPT_NAME', 'NOT SET')}")
-    logger.info(f"PATH_INFO: {request.environ.get('PATH_INFO', 'NOT SET')}")
-    logger.info(f"REQUEST_URI: {request.environ.get('REQUEST_URI', 'NOT SET')}")
-    logger.info(f"HTTP_X_FORWARDED_PREFIX: {request.environ.get('HTTP_X_FORWARDED_PREFIX', 'NOT SET')}")
-    logger.info(f"HTTP_X_INGRESS_PATH: {request.environ.get('HTTP_X_INGRESS_PATH', 'NOT SET')}")
-    logger.info(f"All headers: {dict(request.headers)}")
-    logger.info(f"==================")
-
     if not base_path or base_path == '':
-        path = request.environ.get('PATH_INFO', '')
-        # Check for Ingress pattern
-        if path.startswith('/api/hassio_ingress/'):
-            # Extract prefix up to and including the token
-            parts = path.split('/')
-            if len(parts) >= 4:  # ['', 'api', 'hassio_ingress', '<token>', ...]
-                base_path = '/' + '/'.join(parts[1:4])  # /api/hassio_ingress/<token>
-                # Set SCRIPT_NAME for url_for() and other Flask functions
-                request.environ['SCRIPT_NAME'] = base_path
-                # Remove prefix from PATH_INFO
-                new_path = '/' + '/'.join(parts[4:]) if len(parts) > 4 else '/'
-                request.environ['PATH_INFO'] = new_path
-                logger.info(f"Detected Ingress prefix: {base_path}")
+        # Check for Home Assistant Ingress header
+        ingress_path = request.headers.get('X-Ingress-Path', '')
+        if ingress_path:
+            # Use the Ingress path as base_path
+            base_path = ingress_path
+            # Set SCRIPT_NAME so url_for() generates correct URLs
+            request.environ['SCRIPT_NAME'] = base_path
+            logger.info(f"✅ Detected Ingress prefix from X-Ingress-Path header: {base_path}")
 
     return dict(base_path=base_path)
 
