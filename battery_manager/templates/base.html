@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Kostal Battery Manager{% endblock %}</title>
     {% block head %}{% endblock %}
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/icon.png') }}">
+    <link rel="stylesheet" href="{{ base_path }}/static/css/style.css">
+    <link rel="icon" type="image/png" href="{{ base_path }}/static/img/icon.png">
 </head>
 <body>
     <header>
@@ -44,7 +44,7 @@
         console.log('BASE_PATH:', window.BASE_PATH);
         console.log('Test apiUrl("api/status"):', window.apiUrl('api/status'));
     </script>
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ base_path }}/static/js/app.js"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

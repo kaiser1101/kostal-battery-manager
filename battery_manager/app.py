@@ -32,30 +32,29 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 # Enable CORS for Ingress
 CORS(app)
 
-# Manual Ingress prefix detection for Home Assistant
-@app.before_request
-def detect_ingress_prefix():
-    """Detect and set Ingress prefix if not already set by ProxyFix"""
+# Context processor to inject base_path into all templates
+# IMPORTANT: This runs BEFORE template rendering, so we detect Ingress here
+@app.context_processor
+def inject_base_path():
+    """Detect Ingress prefix and inject base_path into all templates"""
     # Check if we're running under Home Assistant Ingress
     # Ingress URLs look like: /api/hassio_ingress/<token>/...
-    if not request.environ.get('SCRIPT_NAME') or request.environ.get('SCRIPT_NAME') == '':
+    base_path = request.environ.get('SCRIPT_NAME', '')
+
+    if not base_path or base_path == '':
         path = request.environ.get('PATH_INFO', '')
         # Check for Ingress pattern
         if path.startswith('/api/hassio_ingress/'):
             # Extract prefix up to and including the token
             parts = path.split('/')
             if len(parts) >= 4:  # ['', 'api', 'hassio_ingress', '<token>', ...]
-                prefix = '/' + '/'.join(parts[1:4])  # /api/hassio_ingress/<token>
+                base_path = '/' + '/'.join(parts[1:4])  # /api/hassio_ingress/<token>
+                # Set SCRIPT_NAME for url_for() and other Flask functions
+                request.environ['SCRIPT_NAME'] = base_path
                 # Remove prefix from PATH_INFO
                 new_path = '/' + '/'.join(parts[4:]) if len(parts) > 4 else '/'
-                request.environ['SCRIPT_NAME'] = prefix
                 request.environ['PATH_INFO'] = new_path
 
-# Context processor to inject base_path into all templates
-@app.context_processor
-def inject_base_path():
-    """Inject base_path into all templates for Ingress support"""
-    base_path = request.environ.get('SCRIPT_NAME', '')
     return dict(base_path=base_path)
 
 app.config['SECRET_KEY'] = os.urandom(24)
