@@ -877,8 +877,10 @@ def api_consumption_forecast_chart():
                 'error': 'Consumption learner not available'
             }), 500
 
-        # Get hourly profile (forecast)
-        profile = consumption_learner.get_hourly_profile()
+        # Get hourly profile (forecast) for today's weekday
+        from datetime import datetime
+        today = datetime.now().date()
+        profile = consumption_learner.get_hourly_profile(target_date=today)
 
         if not profile:
             return jsonify({
@@ -1024,8 +1026,10 @@ def api_consumption_learning():
         # Get statistics
         stats = consumption_learner.get_statistics()
 
-        # Get hourly profile
-        profile = consumption_learner.get_hourly_profile()
+        # Get hourly profile for today's weekday
+        from datetime import datetime
+        today = datetime.now().date()
+        profile = consumption_learner.get_hourly_profile(target_date=today)
 
         return jsonify({
             'enabled': True,
