@@ -1,16 +1,25 @@
 # Changelog
 
+## [0.9.6] - 2025-11-05
+
+### Fixed
+- **BREAKING: Repository Structure** - Korrekte Home Assistant Add-on Repository Struktur
+  - Add-on Dateien in Unterverzeichnis `kostal_battery_manager/` verschoben
+  - `repository.yaml` im Root erstellt (ERFORDERLICH für alle Add-on Repositories!)
+  - Struktur entspricht jetzt den offiziellen Home Assistant Standards
+  - **Migration**: Repository in Home Assistant entfernen und neu hinzufügen
+
+### Technical
+- Alle Add-on Dateien (config.yaml, Dockerfile, etc.) jetzt in `kostal_battery_manager/` Verzeichnis
+- `repository.yaml` definiert das Repository auf oberster Ebene
+- Ordnerstruktur: Root → repository.yaml + kostal_battery_manager/ → Add-on Dateien
+
 ## [0.9.5] - 2025-11-05
 
 ### Fixed
-- **Home Assistant Repository Detection** - Repository wird nun korrekt von Home Assistant erkannt
-  - `repository.yaml` entfernt (sollte bei Single-Add-on Repositories nicht existieren)
-  - Nur `config.yaml` im Root-Verzeichnis erforderlich
-  - Version-Bump auf 0.9.5 um Home Assistant Cache zu leeren
-
-### Technical
-- Single-Add-on Repository Struktur gemäß Home Assistant Standards
-- Keine `repository.yaml` oder `repository.json` Datei mehr im Root
+- **Home Assistant Repository Detection** - Versuch, Repository-Erkennung zu fixen (FEHLGESCHLAGEN)
+  - `repository.yaml` entfernt - das war ein Fehler
+  - Diese Version funktioniert NICHT korrekt
 
 ## [0.6.4] - 2025-11-04
 
