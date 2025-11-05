@@ -193,6 +193,17 @@
         </div>
     </div>
 
+    <!-- Battery Schedule Chart (v0.9.0) -->
+    <div class="card chart-card" style="grid-column: 1 / -1 !important;">
+        <h2>🔋 Batterie-Prognose & Ladeplanung</h2>
+        <div style="position: relative; height: 350px; padding: 1rem;">
+            <canvas id="batteryScheduleChart"></canvas>
+        </div>
+        <div id="schedule-info" style="padding: 0.5rem 1rem; text-align: center; font-size: 0.95rem; opacity: 0.8;">
+            <!-- Schedule summary will be shown here -->
+        </div>
+    </div>
+
     <!-- Consumption Forecast Chart (v0.6.3) -->
     <div class="card chart-card" style="grid-column: 1 / -1 !important;">
         <h2>📈 Prognostizierter Verbrauch Heute</h2>
@@ -606,6 +617,7 @@ setInterval(updateLearningStats, 30000);
 // v0.6.3 - Chart.js Charts
 let priceChart = null;
 let consumptionChart = null;
+let batteryScheduleChart = null;  // v0.9.0
 
 function initCharts() {
     // Price Chart (Bar chart)
@@ -725,13 +737,108 @@ function initCharts() {
         });
     }
 
+    // Battery Schedule Chart (v0.9.0) - Mixed chart with SOC line and charging bars
+    const batteryScheduleCtx = document.getElementById('batteryScheduleChart');
+    if (batteryScheduleCtx) {
+        batteryScheduleChart = new Chart(batteryScheduleCtx, {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        type: 'line',
+                        label: 'SOC Prognose (%)',
+                        data: [],
+                        borderColor: 'rgb(76, 175, 80)',
+                        backgroundColor: 'transparent',
+                        tension: 0.4,
+                        fill: false,
+                        borderWidth: 3,
+                        yAxisID: 'y-soc',
+                        order: 1  // Draw line on top
+                    },
+                    {
+                        type: 'bar',
+                        label: 'Geplante Ladung (kWh)',
+                        data: [],
+                        backgroundColor: 'rgba(244, 67, 54, 0.7)',
+                        borderColor: 'rgb(244, 67, 54)',
+                        borderWidth: 1,
+                        yAxisID: 'y-charging',
+                        order: 2  // Draw bars behind line
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        labels: { color: '#fff' }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                if (context.dataset.yAxisID === 'y-soc') {
+                                    return 'SOC: ' + context.parsed.y.toFixed(1) + '%';
+                                } else {
+                                    return 'Ladung: ' + context.parsed.y.toFixed(2) + ' kWh';
+                                }
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#ccc' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                    },
+                    'y-soc': {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        min: 0,
+                        max: 100,
+                        ticks: { color: '#4CAF50' },
+                        grid: { color: 'rgba(76, 175, 80, 0.1)' },
+                        title: {
+                            display: true,
+                            text: 'SOC (%)',
+                            color: '#4CAF50'
+                        }
+                    },
+                    'y-charging': {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        min: 0,
+                        ticks: { color: '#F44336' },
+                        grid: { display: false },
+                        title: {
+                            display: true,
+                            text: 'Ladung (kWh)',
+                            color: '#F44336'
+                        }
+                    }
+                }
+            }
+        });
+    }
+
     // Load initial data
     updatePriceChart();
     updateConsumptionChart();
+    updateBatteryScheduleChart();  // v0.9.0
 
     // Update charts every 5 minutes
     setInterval(updatePriceChart, 300000);
     setInterval(updateConsumptionChart, 300000);
+    setInterval(updateBatteryScheduleChart, 300000);  // v0.9.0
 }
 
 function updatePriceChart() {
@@ -802,6 +909,65 @@ function updateConsumptionChart() {
         })
         .catch(error => {
             console.error('Error updating consumption chart:', error);
+        });
+}
+
+function updateBatteryScheduleChart() {
+    fetch(apiUrl('api/battery_schedule'))
+        .then(response => response.json())
+        .then(data => {
+            if (batteryScheduleChart) {
+                // Create labels (0:00 to 23:00)
+                const labels = Array.from({length: 24}, (_, i) => `${i}:00`);
+                batteryScheduleChart.data.labels = labels;
+
+                // Update SOC prognosis (green line)
+                batteryScheduleChart.data.datasets[0].data = data.hourly_soc || Array(24).fill(0);
+
+                // Update planned charging (red bars)
+                batteryScheduleChart.data.datasets[1].data = data.hourly_charging || Array(24).fill(0);
+
+                batteryScheduleChart.update();
+
+                // Update schedule info summary
+                const scheduleInfo = document.getElementById('schedule-info');
+                if (scheduleInfo && data.charging_windows) {
+                    const windows = data.charging_windows;
+                    const totalKwh = data.total_charging_kwh || 0;
+                    const minSoc = data.min_soc_reached || 0;
+
+                    if (windows.length > 0) {
+                        const windowsSummary = windows.map(w =>
+                            `${w.hour}:00 Uhr (${w.charge_kwh.toFixed(1)} kWh @ ${(w.price * 100).toFixed(2)} Cent)`
+                        ).join(', ');
+
+                        scheduleInfo.innerHTML = `
+                            <span style="color: #4CAF50; font-weight: bold;">
+                                ${windows.length} Ladefenster geplant
+                            </span>
+                            <span style="opacity: 0.8; margin-left: 1rem;">
+                                Gesamt: ${totalKwh.toFixed(2)} kWh | Min SOC: ${minSoc.toFixed(1)}%
+                            </span>
+                            <br>
+                            <span style="opacity: 0.6; font-size: 0.9rem;">
+                                ${windowsSummary}
+                            </span>
+                        `;
+                    } else {
+                        scheduleInfo.innerHTML = `
+                            <span style="color: #4CAF50;">
+                                ✓ Keine Ladung erforderlich - PV deckt Bedarf
+                            </span>
+                            <span style="opacity: 0.6; margin-left: 1rem;">
+                                Min SOC: ${minSoc.toFixed(1)}%
+                            </span>
+                        `;
+                    }
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error updating battery schedule chart:', error);
         });
 }
 

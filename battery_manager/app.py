@@ -148,6 +148,7 @@ app_state = {
         'planned_end': None,
         'last_calculated': None
     },
+    'daily_battery_schedule': None,  # v0.9.0 - Full-day predictive plan
     'logs': []
 }
 
@@ -761,6 +762,56 @@ def api_charging_status():
             'pv_remaining': 0,
             'planned_start': None,
             'planned_end': None
+        }), 500
+
+@app.route('/api/battery_schedule')
+def api_battery_schedule():
+    """Get daily battery schedule with SOC forecast and charging plan (v0.9.0)"""
+    try:
+        # Get current SOC
+        current_soc = app_state['battery']['soc']
+
+        # Get Tibber prices
+        prices = []
+        if ha_client:
+            tibber_sensor = config.get('tibber_price_sensor', 'sensor.tibber_prices')
+            attrs = ha_client.get_attributes(tibber_sensor)
+            if attrs and 'today' in attrs:
+                prices = attrs['today']
+
+        # Generate plan
+        plan = tibber_optimizer.plan_daily_battery_schedule(
+            ha_client=ha_client,
+            config=config,
+            current_soc=current_soc,
+            prices=prices
+        )
+
+        if plan:
+            return jsonify(plan)
+        else:
+            return jsonify({
+                'error': 'Could not generate battery schedule',
+                'hourly_soc': [current_soc] * 24,
+                'hourly_charging': [0] * 24,
+                'hourly_pv': [0] * 24,
+                'hourly_consumption': [0] * 24,
+                'hourly_prices': [0] * 24,
+                'charging_windows': [],
+                'last_planned': None
+            }), 500
+
+    except Exception as e:
+        logger.error(f"Error getting battery schedule: {e}", exc_info=True)
+        return jsonify({
+            'error': str(e),
+            'hourly_soc': [0] * 24,
+            'hourly_charging': [0] * 24,
+            'hourly_pv': [0] * 24,
+            'hourly_consumption': [0] * 24,
+            'hourly_prices': [0] * 24,
+            'charging_windows': [],
+            'last_planned': None
         }), 500
 
 @app.route('/api/adjust_power', methods=['POST'])
@@ -1618,11 +1669,45 @@ def controller_loop():
 
     while True:
         try:
-            # Update charging plan periodically (v0.3.0)
+            # Update charging plan periodically (v0.3.0, enhanced v0.9.0)
             now = datetime.now()
             if (last_plan_update is None or
                 (now - last_plan_update).total_seconds() > plan_update_interval):
                 update_charging_plan()
+
+                # v0.9.0 - Calculate daily battery schedule with predictive optimization
+                if ha_client and tibber_optimizer and consumption_learner:
+                    try:
+                        current_soc = float(ha_client.get_state(
+                            config.get('battery_soc_sensor', 'sensor.zwh8_8500_battery_soc')
+                        ) or 50)  # Fallback to 50% if not available
+
+                        # Get Tibber prices
+                        prices = []
+                        tibber_sensor = config.get('tibber_price_sensor', 'sensor.tibber_prices')
+                        attrs = ha_client.get_attributes(tibber_sensor)
+                        if attrs and 'today' in attrs:
+                            prices = attrs['today']
+
+                        # Generate full-day schedule
+                        schedule = tibber_optimizer.plan_daily_battery_schedule(
+                            ha_client=ha_client,
+                            config=config,
+                            current_soc=current_soc,
+                            prices=prices
+                        )
+
+                        if schedule:
+                            app_state['daily_battery_schedule'] = schedule
+                            logger.info(f"✓ Daily battery schedule updated: "
+                                      f"{len(schedule.get('charging_windows', []))} charging windows, "
+                                      f"min SOC {schedule.get('min_soc_reached', 0):.1f}%")
+                        else:
+                            logger.warning("Failed to generate daily battery schedule")
+
+                    except Exception as e:
+                        logger.error(f"Error updating daily battery schedule: {e}", exc_info=True)
+
                 last_plan_update = now
 
             # Record consumption periodically (v0.4.0, improved in v0.7.13)
@@ -1662,21 +1747,57 @@ def controller_loop():
                         min_soc = config.get('auto_safety_soc', 20)
                         max_soc = config.get('auto_charge_below_soc', 95)
 
-                        # Parse planned start time
-                        planned_start = None
-                        if app_state['charging_plan']['planned_start']:
-                            planned_start = datetime.fromisoformat(app_state['charging_plan']['planned_start'])
+                        # v0.9.0 - Use daily battery schedule for charging decisions
+                        should_charge = False
+                        reason = "No action"
 
-                        # v0.8.1 - Use short-term forecast with hourly granularity
-                        # This replaces the old pv_remaining approach with intelligent lookahead
-                        should_charge, reason = tibber_optimizer.should_charge_now(
-                            planned_start=planned_start,
-                            current_soc=current_soc,
-                            min_soc=min_soc,
-                            max_soc=max_soc,
-                            ha_client=ha_client,
-                            config=config
-                        )
+                        # Safety check: SOC too low
+                        if current_soc < min_soc:
+                            should_charge = True
+                            reason = f"SAFETY: SOC below minimum ({current_soc:.1f}% < {min_soc}%)"
+
+                        # Safety check: Battery full
+                        elif current_soc >= max_soc:
+                            should_charge = False
+                            reason = f"Battery full ({current_soc:.1f}% >= {max_soc}%)"
+
+                        # Use daily schedule if available
+                        elif app_state['daily_battery_schedule']:
+                            schedule = app_state['daily_battery_schedule']
+                            current_hour = now.hour
+
+                            # Check if current hour is in charging windows
+                            charging_windows = schedule.get('charging_windows', [])
+                            current_window = None
+                            for window in charging_windows:
+                                if window['hour'] == current_hour:
+                                    current_window = window
+                                    break
+
+                            if current_window:
+                                should_charge = True
+                                reason = (f"Planned charging window: {current_window['charge_kwh']:.2f} kWh "
+                                        f"@ {current_window['price']*100:.2f} Cent/kWh "
+                                        f"({current_window['reason']})")
+                            else:
+                                should_charge = False
+                                min_soc_forecast = schedule.get('min_soc_reached', 100)
+                                reason = f"No charging needed - Schedule OK (min SOC: {min_soc_forecast:.1f}%)"
+
+                        else:
+                            # Fallback if no schedule available (v0.8.1 method)
+                            planned_start = None
+                            if app_state['charging_plan']['planned_start']:
+                                planned_start = datetime.fromisoformat(app_state['charging_plan']['planned_start'])
+
+                            should_charge, reason = tibber_optimizer.should_charge_now(
+                                planned_start=planned_start,
+                                current_soc=current_soc,
+                                min_soc=min_soc,
+                                max_soc=max_soc,
+                                ha_client=ha_client,
+                                config=config
+                            )
 
                         # Aktion ausführen
                         if should_charge and app_state['inverter']['mode'] not in ['manual_charging', 'auto_charging']:
