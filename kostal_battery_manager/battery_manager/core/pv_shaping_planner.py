@@ -299,15 +299,20 @@ class PVShapingPlanner:
         # Die einzig sinnvolle Reaktion ist: Entladen stoppen und auf
         # PV warten.
         if current_soc < self.soc_hard_safety_min:
+            # Entladen wird ueber die SOC-Untergrenze gestoppt, NICHT ueber
+            # ein 0-W-Entladelimit. Beides wirkt gleich, aber der Grenzwert
+            # persistiert: bliebe 0 W nach einem Absturz stehen, koennte die
+            # Batterie nie wieder entladen. Ein hoher min_soc ist dagegen
+            # harmlos und wird vom naechsten Zyklus normal korrigiert.
             plan.update({
                 'mode': 'safety',
                 'max_soc': 100.0,
-                'min_soc': float(self.soc_hard_safety_min),
+                'min_soc': round(max(current_soc, float(self.soc_hard_safety_min)), 1),
                 'max_charge_power': configured_max_power,
-                'max_discharge_power': 0.0,
+                'max_discharge_power': discharge_limit,
                 'reason': (f'SICHERHEIT: SOC {current_soc:.1f}% unter Hartgrenze '
-                           f'{self.soc_hard_safety_min}% - Entladen gesperrt, '
-                           f'Laden aus PV mit voller Leistung freigegeben'),
+                           f'{self.soc_hard_safety_min}% - Entladen ueber SOC-Grenze '
+                           f'gestoppt, Laden aus PV freigegeben'),
             })
             return plan
 
@@ -366,13 +371,16 @@ class PVShapingPlanner:
             throttle_reason = 'keine PV-Prognose - volle Ladeleistung'
 
         elif now.hour < sunrise or now.hour > sunset:
-            # Ausserhalb der PV-Stunden koennte Ladung nur aus dem Netz
-            # kommen. Das Limit auf 0 zu setzen sperrt das hart auf
-            # Registerebene - unabhaengig davon, was die interne Logik
-            # oder eine andere Integration versucht.
-            max_charge_power = 0.0
-            throttle_reason = ('ausserhalb der PV-Stunden - Laden gesperrt '
-                               '(verhindert Netzladung)')
+            # Ausserhalb der PV-Stunden bleibt die volle Ladeleistung stehen.
+            #
+            # Frueher wurde hier 0 W gesetzt, um Netzladung zu sperren. Das
+            # ist aus zwei Gruenden falsch: Netzladung entsteht nur ueber
+            # Setpoints (Register 1034), die diese Strategie nie schreibt -
+            # die Sperre schuetzt also vor nichts. Und ein geschriebener
+            # Grenzwert PERSISTIERT: faellt das Add-on nachts aus, bliebe die
+            # Batterie dauerhaft vom Laden gesperrt.
+            max_charge_power = configured_max_power
+            throttle_reason = 'ausserhalb der PV-Stunden - keine Begrenzung noetig'
 
         elif self.enable_charge_throttling:
             # Aktuelle Stunde zaehlt mit, deshalb +1
@@ -380,8 +388,13 @@ class PVShapingPlanner:
             deficit_kwh = max(0.0, (max_soc - current_soc) / 100 * battery_capacity)
 
             if deficit_kwh <= 0:
-                max_charge_power = 0.0
-                throttle_reason = f'Ziel-SOC {max_soc:.1f}% bereits erreicht - Laden pausiert'
+                # Nicht 0 schreiben: der Wert persistiert, und der SOC-Deckel
+                # (Register 1044) stoppt das Laden ohnehin zuverlaessig.
+                # Ein haengengebliebenes 0-W-Limit waere dagegen unsichtbar
+                # und wuerde die Batterie dauerhaft blockieren.
+                max_charge_power = float(self.min_charge_power)
+                throttle_reason = (f'Ziel-SOC {max_soc:.1f}% erreicht - '
+                                   f'Deckel stoppt das Laden')
             else:
                 spread_w = (deficit_kwh * 1000) / hours_left
                 max_charge_power = min(configured_max_power,

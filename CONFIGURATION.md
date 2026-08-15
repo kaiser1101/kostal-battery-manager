@@ -240,7 +240,36 @@ Abgelehnt: max_charge_power
 
 Der Test nennt außerdem den aktiven **Batteriemanagement-Modus**. Das ist wichtig, weil sich das Verhalten je nach Modus unterscheiden kann — führe den Test daher nach einem Moduswechsel erneut aus.
 
-### Batteriemanagement-Modus (Register 1080)
+### Batteriemanagement-Modus (Register 1080) — WICHTIG
+
+| Rohwert | Modus | SOC-Register | Leistungsregister | Timeout-Blockade |
+|---|---|---|---|---|
+| 0 | Intern | ❌ | ❌ | – |
+| **1** | **Extern über Digital I/O** | ✅ | ✅ | keine |
+| 2 | Extern über Modbus TCP | ✅ | ⚠️ | ⚠️ nach Timeout |
+
+**Erforderlich ist Modus 1: „Extern über Digital I/O".** Einzustellen im Kostal-Webinterface unter *Service → Batterie → Batteriesteuerung*.
+
+Das klingt zunächst falsch, ist aber richtig:
+
+- Ohne angeschlossene Verdrahtung sind alle Digitaleingänge inaktiv. Laut der Befehlstabelle des Wechselrichters bedeutet das *„kein Externer Zugriff, interne Batteriesteuerung aktiv"* — der Wechselrichter macht also seine ganz normale Eigenverbrauchs-Optimierung.
+- Gleichzeitig ist externes Batteriemanagement nominell aktiv, wodurch die Modbus-Register 1038–1044 wirken.
+- Ein Timeout gibt es nicht: Digitaleingänge sind ein Dauerzustand, es kann nichts ausbleiben.
+
+**In Modus 0 (Intern)** ignoriert der Wechselrichter alle vier Register — die Strategie hätte keinerlei Wirkung.
+
+**In Modus 2 (Modbus TCP)** erwartet das Gerät regelmäßig Kommandos. Bleiben sie länger als das eingestellte Timeout aus, setzt die Firmware die Leistungsgrenzen auf 0 und **blockiert die Batterie vollständig**. Da diese Strategie bewusst keine Setpoints schreibt, tritt das zuverlässig ein.
+
+### Grenzwerte persistieren
+
+Ein geschriebener Grenzwert bleibt im Wechselrichter stehen — auch wenn das Add-on stoppt. An realer Hardware verifiziert: ein Ladelimit von 2000 W hielt über 3 Minuten ohne Nachschreiben unverändert.
+
+Das ist einerseits gut (keine Abhängigkeit von durchgehendem Betrieb), erfordert aber Sorgfalt:
+
+- Das Add-on schreibt **nie 0 W** als Grenzwert. Ein hängengebliebenes 0-W-Limit würde die Batterie unsichtbar dauerhaft blockieren. Das Laden wird stattdessen über den SOC-Deckel (Register 1044) gestoppt, das Entladen über die SOC-Untergrenze (1042).
+- Beim geordneten Beenden setzt das Add-on alle vier Register auf die beim Start vorgefundenen Werte zurück. Danach verhält sich die Anlage wie ohne Add-on.
+
+### Batteriemanagement-Modus im Detail
 
 | Rohwert | Bedeutung |
 |---|---|

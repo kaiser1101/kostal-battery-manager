@@ -58,6 +58,8 @@ class ModbusClient:
         # Letzte geschriebene Limits - vermeidet redundante Writes und
         # dient dem Dashboard als Anzeige des aktuellen Plans.
         self.last_limits = {}
+        # Zustand beim Start - Ziel fuer das Aufraeumen beim Beenden
+        self.initial_limits = {}
         self._last_limit_refresh = None
         # Wortreihenfolge fuer Float32. Default des Wechselrichters ist
         # Little-endian (CDAB) = byteorder BIG + wordorder LITTLE.
@@ -286,6 +288,32 @@ class ModbusClient:
             logger.error(f"Unerwarteter Wert in Register 5: {raw} - bleibe beim Default")
             return False
         return True
+
+    def release_limits(self, max_power=None):
+        """
+        Setzt die Grenzen auf unkritische Werte zurueck.
+
+        Wichtig beim Beenden: Ein geschriebener Grenzwert PERSISTIERT im
+        Wechselrichter. Stoppt das Add-on, waehrend z.B. ein niedriges
+        Ladelimit gesetzt ist, bliebe die Batterie dauerhaft gedrosselt -
+        ohne dass irgendwo ersichtlich waere, warum.
+
+        Deshalb: SOC-Korridor auf den vollen Bereich, Leistungsgrenzen auf
+        das Geraetemaximum. Damit verhaelt sich die Anlage wie ohne Add-on.
+        """
+        # Auf die beim Start vorgefundenen Werte zurueck, nicht auf 0/100:
+        # min_soc=0 wuerde eine tiefere Entladung erlauben als die eigene
+        # Einstellung des Nutzers im Kostal-Webinterface.
+        power = max_power or self.initial_limits.get('max_charge_power') or 10000.0
+        report = self.set_battery_limits(
+            max_charge_power=power,
+            max_discharge_power=self.initial_limits.get('max_discharge_power') or power,
+            min_soc=self.initial_limits.get('min_soc', 10.0),
+            max_soc=self.initial_limits.get('max_soc', 100.0),
+            force=True,
+        )
+        logger.info(f"Grenzwerte freigegeben (Add-on beendet sich): {report['written']}")
+        return report
 
     def read_battery_limits(self):
         """

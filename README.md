@@ -35,6 +35,15 @@ Der Wechselrichter entscheidet weiterhin selbst, wann er lädt — nur eben inne
 
 Fällt der SOC unter `soc_hard_safety_min`, wird das **Entladen gesperrt** (Register 1040 = 0). Ohne Netzladung ist das die einzig sinnvolle Reaktion: die Batterie wartet auf PV, statt weiter leergezogen zu werden.
 
+## ⚠️ Voraussetzung: Betriebsart des Wechselrichters
+
+Am Kostal-Wechselrichter muss unter *Service → Batterie → Batteriesteuerung* **„Extern über Protokoll (Digital I/O)"** eingestellt sein. Ohne Verdrahtung der Digitaleingänge läuft die interne Eigenverbrauchs-Optimierung normal weiter — aber die Modbus-Grenzwerte wirken.
+
+- **Intern**: Der Wechselrichter ignoriert alle Steuerregister. Das Add-on hätte keine Wirkung.
+- **Modbus TCP**: Die Firmware blockiert die Batterie nach Ablauf des Timeouts, weil diese Strategie bewusst keine Setpoints schreibt.
+
+Details und Messwerte in [CONFIGURATION.md](CONFIGURATION.md).
+
 ## 📋 Voraussetzungen
 
 - Home Assistant OS oder Supervised

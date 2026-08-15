@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.11.0] - 2026-08-15
+
+### Verified
+- **Die Leistungsregister 1038/1040 sind doch nutzbar.** Der Haltetest an
+  realer Hardware zeigt: ein Ladelimit von 2000 W hielt 3 Minuten ohne
+  Nachschreiben unveraendert. Die frueheren "abgelehnt"-Ergebnisse kamen
+  daher, dass der Registertest nur 100 W unter den Ist-Wert ging - zu nah
+  an dem Bereich, in dem die Firmware selbst schreibt.
+- Damit sind alle vier Hebel des urspruenglichen Entwurfs nutzbar,
+  inklusive der Ladeleistungs-Drosselung.
+
+### Changed
+- **Nachtsperre entfernt.** Sie setzte ausserhalb der PV-Stunden 0 W, um
+  Netzladung zu verhindern - schuetzte aber vor nichts, da Netzladung nur
+  ueber Setpoints entsteht, die diese Strategie nie schreibt. Und ein
+  0-W-Limit persistiert: ein Ausfall haette die Batterie dauerhaft
+  gesperrt.
+- **Kein 0-W-Grenzwert mehr an irgendeiner Stelle.** Laden wird ueber den
+  SOC-Deckel gestoppt, Entladen ueber die SOC-Untergrenze - beides
+  wirksam, aber ungefaehrlich, wenn es haengen bleibt.
+- Der Sicherheitsfall stoppt das Entladen jetzt ueber `min_soc` statt ueber
+  ein 0-W-Entladelimit.
+
+### Added
+- **Freigabe der Grenzwerte beim Beenden** (`atexit` + SIGTERM): Alle vier
+  Register werden auf die beim Start vorgefundenen Werte zurueckgesetzt.
+  Ohne das koennte eine Drosselung unbemerkt bestehen bleiben, da
+  Grenzwerte das Add-on ueberleben.
+
+### Documentation
+- README und CONFIGURATION.md: Betriebsart **Extern ueber Digital I/O** als
+  Voraussetzung dokumentiert, mit Messwerten zu allen drei Modi und
+  Erklaerung, warum Intern und Modbus TCP nicht funktionieren.
+
 ## [0.10.9] - 2026-08-15
 
 ### Fixed

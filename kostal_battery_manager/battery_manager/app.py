@@ -8,6 +8,8 @@ import json
 import logging
 import threading
 import time
+import atexit
+import signal
 from datetime import datetime
 from flask import Flask, render_template, jsonify, request, redirect, url_for, make_response
 from flask_cors import CORS
@@ -143,6 +145,13 @@ def load_config():
 # Load configuration
 config = load_config()
 
+
+def _shutdown_handler(signum, frame):
+    """Gunicorn/HA beenden per SIGTERM - Grenzen vorher freigeben."""
+    logger.info(f"Signal {signum} empfangen, gebe Grenzwerte frei...")
+    release_limits_on_shutdown()
+    raise SystemExit(0)
+
 # Global state
 app_state = {
     'controller_running': True,  # v0.2.5 - Automation ON by default
@@ -275,6 +284,8 @@ try:
             # unnoetig auf max_charge_power herunterzieht.
             if limits.get('max_discharge_power'):
                 config['_hardware_max_discharge_power'] = limits['max_discharge_power']
+            # Ausgangszustand merken - dorthin wird beim Beenden zurueckgesetzt
+            modbus_client.initial_limits = dict(limits)
             logger.info("  -> Limit-Register lesbar, Steuerung sollte funktionieren")
         else:
             logger.error("  1038/1040/1042/1044 NICHT lesbar - die Limit-Steuerung "
@@ -2021,6 +2032,24 @@ def get_consumption_kwh(ha_client, consumption_sensor, timestamp):
         return None
 
 
+def release_limits_on_shutdown():
+    """
+    Beim Beenden die Grenzen freigeben.
+
+    Geschriebene Grenzwerte ueberleben das Add-on. Ohne dieses Aufraeumen
+    koennte ein gedrosseltes Ladelimit oder ein enger SOC-Korridor
+    unbemerkt bestehen bleiben.
+    """
+    if not modbus_client or modbus_client.dry_run:
+        return
+    if config.get('charging_strategy', 'forecast') != 'forecast':
+        return
+    try:
+        modbus_client.release_limits(max_power=config.get('max_charge_power'))
+    except Exception as e:
+        logger.error(f"Konnte Grenzwerte beim Beenden nicht freigeben: {e}")
+
+
 def controller_loop():
     """Background thread for battery control"""
     import time
@@ -2281,6 +2310,16 @@ def controller_loop():
 # Start controller thread
 controller_thread = threading.Thread(target=controller_loop, daemon=True)
 controller_thread.start()
+
+# Aufraeumen beim Beenden registrieren. Geschriebene Grenzwerte ueberleben
+# das Add-on - ohne das hier bliebe eine Drosselung dauerhaft stehen.
+# Home Assistant beendet Add-ons per SIGTERM, gunicorn reicht das durch.
+atexit.register(release_limits_on_shutdown)
+try:
+    signal.signal(signal.SIGTERM, _shutdown_handler)
+except ValueError:
+    # In einem Nicht-Haupt-Thread nicht moeglich; atexit greift trotzdem
+    logger.debug("SIGTERM-Handler konnte nicht registriert werden")
 
 # ==============================================================================
 # Main Entry Point
