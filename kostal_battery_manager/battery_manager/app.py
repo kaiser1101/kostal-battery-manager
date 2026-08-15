@@ -114,7 +114,16 @@ def load_config():
         'tibber_price_threshold_3h': 8,
         'charge_duration_per_10_percent': 18,
         'input_datetime_planned_charge_end': 'input_datetime.tibber_geplantes_ladeende',
-        'input_datetime_planned_charge_start': 'input_datetime.tibber_geplanter_ladebeginn'
+        'input_datetime_planned_charge_start': 'input_datetime.tibber_geplanter_ladebeginn',
+        # v0.10.0 - Forecast-only "Evening Top-up" strategy (no price logic)
+        'charging_strategy': 'price',       # 'price' (legacy/Tibber) or 'forecast' (evening top-up)
+        'soc_corridor_min': 30,             # weiche Untergrenze, schonender Korridor
+        'soc_corridor_max': 80,             # weiche Obergrenze, kein Vollladen
+        'soc_hard_safety_min': 15,          # harte Notbremse, unabhängig vom Abend-Check
+        'pv_forecast_safety_margin': 0.8,   # Sicherheitsmarge auf PV-Prognose
+        'pv_dropoff_threshold': 0.05,       # Trigger: PV < 5% des Tagesmaximums
+        'escalation_days': 2,               # nach X Tagen Korridor-Unterschreitung eskalieren
+        'escalation_soc_boost': 15          # Ziel-SOC-Anhebung bei Eskalation
     }
 
 # Load configuration
@@ -148,7 +157,9 @@ app_state = {
         'planned_end': None,
         'last_calculated': None
     },
-    'daily_battery_schedule': None,  # v0.9.0 - Full-day predictive plan
+    'daily_battery_schedule': None,  # v0.9.0 - Full-day predictive plan (price strategy)
+    'forecast_evaluation': None,     # v0.10.0 - Last evening top-up evaluation (forecast strategy)
+    'forecast_target_soc': None,     # v0.10.0 - Target SOC of the current top-up, if any
     'logs': []
 }
 
@@ -180,6 +191,7 @@ try:
         from .core.modbus_client import ModbusClient
         from .core.ha_client import HomeAssistantClient
         from .core.tibber_optimizer import TibberOptimizer
+        from .core.forecast_optimizer import ForecastOptimizer  # v0.10.0
         from .core.consumption_learner import ConsumptionLearner
         from .core.forecast_solar_api import ForecastSolarAPI  # v0.9.2
     except ImportError:
@@ -190,6 +202,7 @@ try:
         from core.modbus_client import ModbusClient
         from core.ha_client import HomeAssistantClient
         from core.tibber_optimizer import TibberOptimizer
+        from core.forecast_optimizer import ForecastOptimizer  # v0.10.0
         from core.consumption_learner import ConsumptionLearner
         from core.forecast_solar_api import ForecastSolarAPI  # v0.9.2
     
@@ -205,6 +218,8 @@ try:
     )
     ha_client = HomeAssistantClient()
     tibber_optimizer = TibberOptimizer(config)
+    # v0.10.0 - Forecast-only optimizer, active when charging_strategy == 'forecast'
+    forecast_optimizer = ForecastOptimizer(config)
 
     # v0.4.0 - Initialize consumption learner
     consumption_learner = None
@@ -248,9 +263,11 @@ try:
         else:
             add_log('INFO', f'Consumption learner initialized (learning period: {learning_days} days, fallback: {default_fallback:.2f} kWh/h)')
 
-        # Connect consumption learner to optimizer
+        # Connect consumption learner to optimizer(s)
         if tibber_optimizer:
             tibber_optimizer.set_consumption_learner(consumption_learner)
+        if forecast_optimizer:
+            forecast_optimizer.set_consumption_learner(consumption_learner)
 
     # v0.9.2 - Initialize Forecast.Solar Professional API if enabled
     forecast_solar_api = None
@@ -293,9 +310,11 @@ try:
                 # Store planes in config for later use
                 config['forecast_solar_planes'] = planes
 
-                # Connect to optimizer
+                # Connect to optimizer(s)
                 if tibber_optimizer:
                     tibber_optimizer.set_forecast_solar_api(forecast_solar_api)
+                if forecast_optimizer:
+                    forecast_optimizer.set_forecast_solar_api(forecast_solar_api)
 
                 add_log('INFO', f'Forecast.Solar Professional API enabled (lat={latitude}, lon={longitude}, {len(planes)} roofs)')
             else:
@@ -325,6 +344,7 @@ except ImportError as e:
     modbus_client = None
     ha_client = None
     tibber_optimizer = None
+    forecast_optimizer = None
     consumption_learner = None
     add_log('WARNING', 'Running in development mode - components not available')
 except Exception as e:
@@ -333,6 +353,7 @@ except Exception as e:
     modbus_client = None
     ha_client = None
     tibber_optimizer = None
+    forecast_optimizer = None
     consumption_learner = None
     add_log('ERROR', f'Failed to initialize components: {str(e)}')
 
@@ -1732,7 +1753,10 @@ def controller_loop():
                 update_charging_plan()
 
                 # v0.9.0 - Calculate daily battery schedule with predictive optimization
-                if ha_client and tibber_optimizer and consumption_learner:
+                # v0.10.0 - Only relevant for the legacy price-based strategy;
+                # the forecast strategy uses evaluate_evening_topup() instead.
+                if (config.get('charging_strategy', 'price') == 'price'
+                        and ha_client and tibber_optimizer and consumption_learner):
                     try:
                         current_soc = float(ha_client.get_state(
                             config.get('battery_soc_sensor', 'sensor.zwh8_8500_battery_soc')
@@ -1790,8 +1814,62 @@ def controller_loop():
                         logger.error(f"Error recording consumption: {e}", exc_info=True)
 
             if app_state['controller_running'] and config.get('auto_optimization_enabled', True):
-                # v0.3.0 - Intelligent Tibber-based charging
-                if ha_client and kostal_api and modbus_client and tibber_optimizer:
+                strategy = config.get('charging_strategy', 'price')
+
+                # v0.10.0 - Forecast-only "Evening Top-up" strategy (no price logic)
+                if strategy == 'forecast' and ha_client and kostal_api and modbus_client and forecast_optimizer:
+                    try:
+                        current_soc = float(ha_client.get_state(
+                            config.get('battery_soc_sensor', 'sensor.zwh8_8500_battery_soc')
+                        ) or 0)
+                        app_state['battery']['soc'] = current_soc
+                        battery_capacity = config.get('battery_capacity', 10.6)
+
+                        evaluation = forecast_optimizer.evaluate_evening_topup(
+                            ha_client=ha_client,
+                            config=config,
+                            current_soc=current_soc,
+                            battery_capacity=battery_capacity
+                        )
+                        app_state['forecast_evaluation'] = evaluation
+
+                        should_charge = evaluation['should_charge']
+                        reason = evaluation['reason']
+                        target_soc = evaluation['target_soc']
+
+                        # While an evening top-up is in progress, keep charging until
+                        # the (single, pre-computed) target SOC is reached.
+                        if app_state['inverter']['mode'] == 'auto_charging':
+                            if current_soc >= app_state.get('forecast_target_soc', target_soc):
+                                should_charge = False
+                                reason = f"Target SOC reached ({current_soc:.1f}% >= {app_state.get('forecast_target_soc'):.1f}%)"
+                            else:
+                                should_charge = True  # keep going, don't re-decide mid-charge
+
+                        if should_charge and evaluation['checked']:
+                            app_state['forecast_target_soc'] = target_soc
+
+                        # Aktion ausführen
+                        if should_charge and app_state['inverter']['mode'] not in ['manual_charging', 'auto_charging']:
+                            kostal_api.set_external_control(True)
+                            charge_power = -config['max_charge_power']
+                            modbus_client.write_battery_power(charge_power)
+                            app_state['inverter']['mode'] = 'auto_charging'
+                            app_state['inverter']['control_mode'] = 'external'
+                            add_log('INFO', f'Forecast-Optimization started charging: {reason}')
+
+                        elif not should_charge and app_state['inverter']['mode'] == 'auto_charging':
+                            modbus_client.write_battery_power(0)
+                            kostal_api.set_external_control(False)
+                            app_state['inverter']['mode'] = 'automatic'
+                            app_state['inverter']['control_mode'] = 'internal'
+                            add_log('INFO', f'Forecast-Optimization stopped charging: {reason}')
+
+                    except Exception as e:
+                        logger.error(f"Error in forecast-optimization: {e}", exc_info=True)
+
+                # v0.3.0 - Legacy: Intelligent Tibber-based (price) charging
+                elif strategy == 'price' and ha_client and kostal_api and modbus_client and tibber_optimizer:
                     try:
                         # Hole aktuelle Werte
                         current_soc = float(ha_client.get_state(
