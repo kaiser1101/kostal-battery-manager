@@ -1442,6 +1442,11 @@ def internal_error(error):
 
 def update_charging_plan():
     """Calculate optimal charging schedule based on Tibber prices (v0.3.0)"""
+    # v0.10.5 - Reine Preislogik. In der forecast-Strategie wuerde sie nur
+    # erfolglos Tibber-Sensoren abfragen und das Log zumuellen; der daraus
+    # gefuellte "Geplante Ladung"-Bereich ist dort ohnehin ausgeblendet.
+    if config.get('charging_strategy', 'forecast') != 'price':
+        return
     try:
         logger.info("Starting charging plan calculation...")
         add_log('INFO', 'Calculating charging plan...')

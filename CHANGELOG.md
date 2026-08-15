@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.5] - 2026-08-15
+
+### Fixed
+- `update_charging_plan()` lief auch in der `forecast`-Strategie und fragte
+  dort erfolglos die Tibber-Sensoren ab. Letzte verbliebene Quelle fuer
+  404-Warnungen im Log ohne Tibber-Integration.
+
 ## [0.10.4] - 2026-08-15
 
 ### Fixed
