@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.3] - 2026-08-15
+
+### Fixed
+- **Echte Standortkoordinaten aus der Dokumentation entfernt.** README und
+  CONFIGURATION.md enthielten die Koordinaten einer konkreten Anlage als
+  Beispiel. Ersetzt durch neutrale Platzhalter.
+
 ## [0.11.2] - 2026-08-15
 
 ### Fixed

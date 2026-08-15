@@ -69,7 +69,7 @@ Details und Messwerte in [CONFIGURATION.md](CONFIGURATION.md).
 ```yaml
 enable_forecast_solar_api: true
 forecast_solar_api_key: ''           # leer = öffentliche API
-forecast_solar_latitude: 48.2085     # deine Koordinaten
+forecast_solar_latitude: 48.2085     # DEINE Koordinaten eintragen
 forecast_solar_longitude: 16.3721
 forecast_solar_roof1_declination: 42
 forecast_solar_roof1_azimuth: 0      # 0=Süd, 90=West, -90=Ost

@@ -200,7 +200,7 @@ Das Präfix lässt sich über `ha_entity_prefix` ändern.
 type: history-graph
 hours_to_show: 72
 entities:
-  - sensor.deine_anlage_battery_soc   # dein Ist-SOC
+  - sensor.deine_batterie_soc                # dein Ist-SOC-Sensor
   - sensor.kostal_bm_target_soc              # der Deckel
   - sensor.kostal_bm_min_soc                 # die Untergrenze
 ```
