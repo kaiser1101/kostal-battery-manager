@@ -274,13 +274,21 @@ class PVShapingPlanner:
         now = now or datetime.now().astimezone()
         configured_max_power = float(config.get('max_charge_power', 3900))
 
+        # Die Entladegrenze hat mit der Ladeleistung nichts zu tun. Wird sie
+        # nicht ausdruecklich konfiguriert, uebernehmen wir das Limit des
+        # Wechselrichters (Register 1040, beim Start gelesen) - sonst wuerden
+        # wir seine Entladeleistung ohne Grund beschneiden.
+        discharge_limit = (float(config.get('max_discharge_power') or 0)
+                           or float(config.get('_hardware_max_discharge_power') or 0)
+                           or configured_max_power)
+
         plan = {
             'timestamp': now.isoformat(),
             'current_soc': current_soc,
             'max_soc': float(self.soc_corridor_max),
             'min_soc': float(self.soc_corridor_min),
             'max_charge_power': configured_max_power,
-            'max_discharge_power': configured_max_power,
+            'max_discharge_power': discharge_limit,
             'mode': 'normal',
             'reason': '',
             'diagnostics': {},
@@ -385,7 +393,7 @@ class PVShapingPlanner:
             'max_soc': round(max_soc, 1),
             'min_soc': round(min_soc, 1),
             'max_charge_power': round(max_charge_power, 0),
-            'max_discharge_power': configured_max_power,
+            'max_discharge_power': discharge_limit,
             'reason': f'Deckel {max_soc:.1f}% ({cap_reason}); {throttle_reason}',
             'diagnostics': {
                 'overnight_need_kwh': round(overnight_kwh, 2),

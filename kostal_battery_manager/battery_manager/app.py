@@ -265,6 +265,10 @@ try:
             logger.info(f"  1040 Max. Entladeleistung: {limits.get('max_discharge_power')} W")
             logger.info(f"  1042 Minimum SOC         : {limits.get('min_soc')} %")
             logger.info(f"  1044 Maximum SOC         : {limits.get('max_soc')} %")
+            # Entladegrenze des Geraets merken, damit der Planer sie nicht
+            # unnoetig auf max_charge_power herunterzieht.
+            if limits.get('max_discharge_power'):
+                config['_hardware_max_discharge_power'] = limits['max_discharge_power']
             logger.info("  -> Limit-Register lesbar, Steuerung sollte funktionieren")
         else:
             logger.error("  1038/1040/1042/1044 NICHT lesbar - die Limit-Steuerung "

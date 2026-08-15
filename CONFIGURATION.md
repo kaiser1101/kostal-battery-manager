@@ -72,6 +72,16 @@ Zwei Effekte: niedrigere C-Rate, und der Ziel-SOC wird erst gegen Abend erreicht
 
 Die Rechnung läuft in **jedem** Regelzyklus neu. Ziehen Wolken auf und der SOC bleibt zurück, steigt die erlaubte Leistung automatisch — das System korrigiert sich selbst.
 
+### `max_discharge_power` (Standard: 0)
+
+Obergrenze für das Entladen in Watt (Register 1040). **0 bedeutet: das Limit des Wechselrichters übernehmen** — der Wert wird beim Start aus Register 1040 gelesen.
+
+Das hat nichts mit `max_charge_power` zu tun. Frühere Versionen setzten beides auf denselben Wert und haben die Entladeleistung dadurch ohne Grund beschnitten.
+
+Nur setzen, wenn du das Entladen bewusst drosseln willst (z. B. um Lastspitzen aus der Batterie zu begrenzen).
+
+Im Sicherheitsfall (`soc_hard_safety_min` unterschritten) wird die Grenze unabhängig davon auf 0 W gesetzt.
+
 ### `min_charge_power` (Standard: 500 W)
 
 Untergrenze der gedrosselten Leistung. Verhindert, dass bei winzigem Restbedarf unrealistisch kleine Werte gesetzt werden.

@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.7] - 2026-08-15
+
+### Fixed
+- **Entladegrenze wurde unnoetig beschnitten.** Der Planer setzte
+  `max_discharge_power` auf den Wert von `max_charge_power`, obwohl beides
+  nichts miteinander zu tun hat. An realer Hardware bedeutete das z.B.
+  4300 W statt der vom Wechselrichter erlaubten 4545 W.
+
+### Added
+- Neue Option `max_discharge_power` (Standard 0 = Limit des
+  Wechselrichters uebernehmen, beim Start aus Register 1040 gelesen).
+  Nur setzen, wenn das Entladen bewusst gedrosselt werden soll.
+
 ## [0.10.6] - 2026-08-15
 
 ### Added

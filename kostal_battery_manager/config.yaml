@@ -1,5 +1,5 @@
 name: Kostal Battery Manager edited by Phil
-version: "0.10.6"
+version: "0.10.7"
 slug: kostal_battery_manager
 description: "description: Intelligente Batteriesteuerung für Kostal Plenticore Plus mit PV-Prognose, Verbrauchslernen, intelligenter SOC-Optimierung und bedarfsgerechter Batterieladung"
 url: "https://github.com/kaiser1101/kostal-battery-manager.git"
@@ -96,6 +96,9 @@ options:
   # Ladeleistungs-Drosselung (verteilt die Ladung ueber den Nachmittag)
   enable_charge_throttling: true
   min_charge_power: 500  # Untergrenze der gedrosselten Ladeleistung (W)
+  # Entladegrenze in W. 0 = Limit des Wechselrichters uebernehmen (empfohlen).
+  # Hat nichts mit max_charge_power zu tun.
+  max_discharge_power: 0
   # Periodische Kalibrierladung auf 100% fuer die BMS-SOC-Schaetzung
   calibration_interval_days: 28  # 0 = deaktiviert
   calibration_min_pv_kwh: 15.0  # Nur an Tagen mit mind. so viel PV-Prognose
@@ -138,6 +141,7 @@ schema:
   dry_run: bool
   enable_charge_throttling: bool
   min_charge_power: int(0,10000)
+  max_discharge_power: int(0,20000)
   calibration_interval_days: int(0,365)
   calibration_min_pv_kwh: float(0.0,200.0)
   soc_corridor_min: int(5,60)
