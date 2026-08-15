@@ -10,7 +10,7 @@ import threading
 import time
 import atexit
 import signal
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, render_template, jsonify, request, redirect, url_for, make_response
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -234,6 +234,7 @@ try:
         from .core.ha_client import HomeAssistantClient
         from .core.tibber_optimizer import TibberOptimizer
         from .core.pv_shaping_planner import PVShapingPlanner  # v0.10.0
+        from .core import effectiveness  # v0.12.0
         from .core.consumption_learner import ConsumptionLearner
         from .core.forecast_solar_api import ForecastSolarAPI  # v0.9.2
     except ImportError:
@@ -245,6 +246,7 @@ try:
         from core.ha_client import HomeAssistantClient
         from core.tibber_optimizer import TibberOptimizer
         from core.pv_shaping_planner import PVShapingPlanner  # v0.10.0
+        from core import effectiveness  # v0.12.0
         from core.consumption_learner import ConsumptionLearner
         from core.forecast_solar_api import ForecastSolarAPI  # v0.9.2
     
@@ -816,6 +818,74 @@ def read_soc(ha_client, config, fallback=None):
     except (ValueError, TypeError):
         logger.warning(f"Battery-SOC-Sensor liefert unerwarteten Wert '{raw}'")
         return fallback
+
+
+@app.route('/api/effectiveness')
+def api_effectiveness():
+    """
+    Wirkungskontrolle: Wie lange lag der SOC ueber dem Korridor? (v0.12.0)
+
+    Vergleicht - sofern moeglich - den Zeitraum vor dem Scharfschalten mit
+    dem danach. Der Zeitpunkt wird beim Wechsel von dry_run auf false im
+    Planerzustand vermerkt.
+
+    Query: ?days=30 (Standard 30, Maximum 90)
+    """
+    if not ha_client:
+        return jsonify({'success': False, 'error': 'HA-Client nicht verfuegbar'}), 500
+
+    try:
+        days = min(int(request.args.get('days', 30)), 90)
+    except ValueError:
+        days = 30
+
+    sensor = config.get('battery_soc_sensor')
+    if not sensor:
+        return jsonify({'success': False, 'error': 'battery_soc_sensor nicht konfiguriert'}), 200
+
+    start = datetime.now() - timedelta(days=days)
+    history = ha_client.get_history(sensor, start)
+    if not history:
+        return jsonify({'success': False,
+                        'error': f'Keine Historie fuer {sensor}. HAs Recorder haelt '
+                                 f'standardmaessig nur rund 10 Tage vor.'}), 200
+
+    cmin = float(config.get('soc_corridor_min', 30))
+    cmax = float(config.get('soc_corridor_max', 80))
+
+    result = {
+        'success': True,
+        'sensor': sensor,
+        'zeitraum_tage': days,
+        'korridor': {'min': cmin, 'max': cmax},
+        'gesamt': effectiveness.analyse_soc_history(history, cmin, cmax),
+    }
+
+    # Vorher/Nachher, falls das Scharfschalten vermerkt ist
+    live_since = None
+    if pv_shaping_planner:
+        raw = (pv_shaping_planner._state or {}).get('live_since')
+        if raw:
+            try:
+                live_since = datetime.fromisoformat(raw)
+            except ValueError:
+                live_since = None
+
+    if live_since:
+        before_raw, after_raw = effectiveness.split_history(history, live_since)
+        before = effectiveness.analyse_soc_history(before_raw, cmin, cmax)
+        after = effectiveness.analyse_soc_history(after_raw, cmin, cmax)
+        result.update({
+            'scharf_seit': live_since.isoformat(),
+            'vorher': before, 'nachher': after,
+            'vergleich': effectiveness.compare(before, after),
+        })
+    else:
+        result['hinweis'] = ('Noch kein Scharfschalten vermerkt (dry_run ist aktiv). '
+                            'Die Auswertung zeigt den aktuellen Zustand als Ausgangsbasis - '
+                            'genau die Werte, gegen die spaeter verglichen wird.')
+
+    return jsonify(result)
 
 
 @app.route('/api/hold_test', methods=['POST'])
@@ -2243,6 +2313,11 @@ def controller_loop():
                             battery_capacity=battery_capacity
                         )
                         app_state['shaping_plan'] = plan
+
+                        # Ersten echten Schreibvorgang als Trennlinie der
+                        # Wirkungskontrolle vermerken
+                        if not modbus_client.dry_run:
+                            pv_shaping_planner.mark_live()
 
                         report = modbus_client.set_battery_limits(
                             max_charge_power=plan['max_charge_power'],

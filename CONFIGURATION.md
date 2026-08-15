@@ -225,6 +225,36 @@ automation:
 
 > **Einschränkung:** Über die REST-API angelegte Entitäten stehen nicht in der Entitäts-Registry. Nach einem HA-Neustart fehlen sie, bis das Add-on sie erneut schreibt — längstens ein `control_interval`, also 30 Sekunden. Umbenennen über die HA-Oberfläche ist nicht möglich.
 
+## Wirkungskontrolle
+
+Im Dashboard, Karte **📈 Wirkungskontrolle**: Wertet die SOC-Historie aus Home Assistant aus und beantwortet die Frage, ob die Strategie etwas gebracht hat.
+
+Gemessen wird die **Verweildauer bei hohem Ladestand** — die kalendarische Alterung hängt stärker davon ab als von der Zyklenzahl.
+
+```
+VORHER  (ohne Strategie)   (10.0 Tage, 240 Messpunkte)
+   Ladestand im Mittel     59.2 %   (min 15.0 / max 100.0)
+   ueber 80 %              60.0 h  = 25.1 % der Zeit
+   ueber 95 %              20.0 h  =  8.4 % der Zeit
+   Vollzyklen              8.5  (0.85 pro Tag)
+
+NACHHER (mit Strategie)    (10.0 Tage, 240 Messpunkte)
+   ueber 80 %               0.0 h  =  0.0 % der Zeit
+   ueber 95 %               0.0 h  =  0.0 % der Zeit
+   Vollzyklen              4.8  (0.48 pro Tag)
+```
+
+Die Trennlinie ist der Zeitpunkt, an dem zum ersten Mal tatsächlich geschrieben wurde (`dry_run: false`). Er wird automatisch im Planerzustand vermerkt und bleibt danach unverändert, damit ein Neustart die Basis nicht verschiebt.
+
+**Solange der Dry-Run läuft**, zeigt die Auswertung nur den aktuellen Zustand — genau die Ausgangswerte, gegen die später verglichen wird. Es lohnt sich, sie vor dem Scharfschalten einmal festzuhalten.
+
+### Grenzen der Aussage
+
+- **HAs Recorder hält standardmäßig nur ~10 Tage vor.** Der Vorher-Zeitraum ist damit begrenzt. Wer länger vergleichen will, sollte `recorder.purge_keep_days` erhöhen, bevor er scharf schaltet.
+- Umfasst ein Zeitraum weniger als 7 Tage, weist die Auswertung selbst darauf hin, dass das Ergebnis **nicht belastbar** ist. Wetter und Verbrauch schwanken stärker als der Effekt der Strategie.
+- Lücken über 3 Stunden werden aus der Zeitrechnung ausgenommen, damit Ausfälle die Anteile nicht verfälschen.
+- **Keine Aussage über Geld.** Ersparnis hängt an Tarifen und Einspeisevergütung, die das Add-on nicht kennt. Hier geht es um die Batterie.
+
 ## Fehlersuche
 
 ### „Warte auf ersten Plan"

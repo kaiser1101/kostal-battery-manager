@@ -160,6 +160,22 @@
         </div>
     </div>
 
+    <!-- Wirkungskontrolle (v0.12.0) -->
+    <div class="card forecast-card" id="effectiveness-card" style="display:none; grid-column: 1 / -1 !important;">
+        <h2>📈 Wirkungskontrolle</h2>
+        <div style="padding: 0.5rem 0;">
+            <div style="font-size: 0.85rem; opacity: 0.7; margin-bottom: 1rem;">
+                Wie lange lag der Ladestand über dem Korridor? Das ist die entscheidende
+                Größe für die kalendarische Alterung.
+            </div>
+            <button onclick="loadEffectiveness(30)" class="btn btn-secondary">30 Tage auswerten</button>
+            <button onclick="loadEffectiveness(90)" class="btn btn-secondary" style="margin-left:0.5rem;">90 Tage</button>
+            <pre id="effectiveness-result" style="display:none; margin-top: 1rem; padding: 0.75rem;
+                 background: rgba(128,128,128,0.12); border-radius: 6px; font-size: 0.8rem;
+                 overflow-x: auto; white-space: pre;"></pre>
+        </div>
+    </div>
+
     <!-- PV-Shaping Plan (v0.10.0) -->
     <div class="card forecast-card" id="shaping-card" style="display: none; grid-column: 1 / -1 !important;">
         <h2>🛡️ Batterieschonung <span id="shaping-dryrun-badge" class="badge" style="display:none; background:#b45309;">DRY-RUN</span></h2>
@@ -386,6 +402,44 @@ function updateChargingStatus() {
 // Update charging status every 5 seconds
 setInterval(updateChargingStatus, 5000);
 
+// v0.12.0 - Wirkungskontrolle
+function fmtBlock(titel, d, korridor) {
+    if (!d) return `${titel}: keine Daten\n`;
+    return `${titel}  (${d.tage} Tage, ${d.messpunkte} Messpunkte)\n`
+         + `   Ladestand im Mittel     ${d.soc_mittel} %   (min ${d.soc_min} / max ${d.soc_max})\n`
+         + `   ueber ${korridor.max} %              ${d.stunden_ueber_korridor} h  = ${d.anteil_ueber_korridor} % der Zeit\n`
+         + `   ueber 95 %              ${d.stunden_ueber_95} h  = ${d.anteil_ueber_95} % der Zeit\n`
+         + `   unter ${korridor.min} %              ${d.stunden_unter_korridor} h  = ${d.anteil_unter_korridor} % der Zeit\n`
+         + `   Vollzyklen              ${d.vollzyklen}  (${d.vollzyklen_pro_tag} pro Tag)\n`;
+}
+
+function loadEffectiveness(days) {
+    const out = document.getElementById('effectiveness-result');
+    out.style.display = '';
+    out.textContent = 'Historie wird ausgewertet...';
+
+    fetch(apiUrl('api/effectiveness?days=' + days))
+        .then(r => r.json())
+        .then(d => {
+            if (!d.success) { out.textContent = d.error || 'Auswertung fehlgeschlagen'; return; }
+            let t = '';
+            if (d.vorher || d.nachher) {
+                t += fmtBlock('VORHER  (ohne Strategie)', d.vorher, d.korridor) + '\n';
+                t += fmtBlock('NACHHER (mit Strategie)', d.nachher, d.korridor) + '\n';
+                if (d.vergleich && d.vergleich.moeglich) {
+                    t += d.vergleich.fazit;
+                } else if (d.vergleich) {
+                    t += d.vergleich.hinweis;
+                }
+            } else {
+                t += fmtBlock('AUSGANGSBASIS', d.gesamt, d.korridor);
+                if (d.hinweis) t += '\n' + d.hinweis;
+            }
+            out.textContent = t;
+        })
+        .catch(e => { out.textContent = 'Fehler: ' + e; });
+}
+
 // v0.11.0 - Haltetest: haelt ein geschriebener Leistungswert ueber Minuten?
 function runHoldTest() {
     if (!confirm('Der Haltetest schreibt Register 1038 (max. Ladeleistung) auf 2000 W '
@@ -484,6 +538,8 @@ function updateShapingCard(data) {
         return;
     }
     card.style.display = '';
+    const effCard = document.getElementById('effectiveness-card');
+    if (effCard) effCard.style.display = '';
 
     // Preisbasierte Karten sind in dieser Strategie bedeutungslos
     document.querySelectorAll('[data-price-only]').forEach(el => {

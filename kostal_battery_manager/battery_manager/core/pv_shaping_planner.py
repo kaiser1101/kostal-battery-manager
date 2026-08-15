@@ -64,6 +64,21 @@ class PVShapingPlanner:
     # ------------------------------------------------------------------
     # Abhaengigkeiten
     # ------------------------------------------------------------------
+    def mark_live(self, when=None):
+        """
+        Vermerkt den Zeitpunkt, ab dem tatsaechlich geschrieben wird.
+
+        Dient als Trennlinie der Wirkungskontrolle: alles davor ist das
+        Verhalten ohne Strategie, alles danach mit. Wird nur beim ersten
+        Mal gesetzt, damit ein Neustart die Basis nicht verschiebt.
+        """
+        if self._state.get('live_since'):
+            return
+        self._state['live_since'] = (when or datetime.now().astimezone()).isoformat()
+        self._save_state()
+        logger.info(f"Scharfschaltung vermerkt: {self._state['live_since']} - "
+                    f"ab hier laeuft die Wirkungskontrolle")
+
     def set_consumption_learner(self, learner):
         self.consumption_learner = learner
         logger.info("Consumption learner integrated into PV shaping planner")

@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.12.0] - 2026-08-15
+
+### Added
+- **Wirkungskontrolle** (`core/effectiveness.py`, `GET /api/effectiveness`,
+  Karte im Dashboard): Wertet die SOC-Historie aus Home Assistant aus und
+  beantwortet, ob die Strategie etwas gebracht hat.
+  - Kennzahlen: Verweildauer ueber dem Korridor und ueber 95%, mittlerer
+    Ladestand, Zeit unter der Untergrenze, geschaetzte Vollzyklen
+  - Zeitanteile werden ueber die Dauer ZWISCHEN den Messpunkten gewichtet,
+    nicht ueber deren Anzahl - HA schreibt nur bei Aenderung
+  - Luecken ueber 3 Stunden werden ausgenommen, damit Ausfaelle die
+    Anteile nicht verfaelschen
+  - Vorher/Nachher-Vergleich anhand des vermerkten Scharfschaltzeitpunkts
+  - Weist selbst darauf hin, wenn ein Zeitraum unter 7 Tagen liegt und das
+    Ergebnis damit nicht belastbar ist
+- `PVShapingPlanner.mark_live()`: vermerkt beim ersten echten Schreibvorgang
+  den Zeitpunkt als Trennlinie der Auswertung.
+
+### Fixed
+- `timedelta` war in app.py nur lokal in einer Funktion importiert.
+
 ## [0.11.4] - 2026-08-15
 
 ### Fixed
