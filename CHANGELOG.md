@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.10.6] - 2026-08-15
+
+### Added
+- **Registerdiagnose beim Start** (auch im Dry-Run, da rein lesend):
+  protokolliert Batteriekapazitaet (1068), Management-Modus (1080) und die
+  vier Limit-Register. Damit laesst sich VOR dem Scharfschalten pruefen, ob
+  die Steuerung am eigenen Geraet ueberhaupt funktionieren kann.
+- Warnung, wenn die vom Wechselrichter gemeldete Kapazitaet deutlich von
+  `battery_capacity` abweicht - alle Energieberechnungen haengen daran.
+
+### Fixed
+- Die Rueckmeldung aus den Registern wurde im Dry-Run gar nicht gelesen.
+  Lesen ist gefahrlos; jetzt wird der Ist-Zustand auch dort geloggt und dem
+  geplanten Zustand gegenuebergestellt.
+- Abweichungspruefung deckt jetzt auch die beiden Leistungsregister ab
+  (vorher nur min_soc/max_soc).
+
 ## [0.10.5] - 2026-08-15
 
 ### Fixed

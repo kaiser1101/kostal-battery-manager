@@ -179,6 +179,36 @@ Der Plan wird im `control_interval` (Standard 30 s) berechnet. Erscheint dauerha
 
 Siehe die Einschränkung oben — dein Nachtbedarf übersteigt vermutlich den nutzbaren Korridor. Prüfe im Dashboard den Wert „Nachtbedarf" gegen deine Kapazität.
 
+### Registerdiagnose beim Start
+
+Direkt nach dem Start protokolliert das Add-on einmalig, was es an deinem Wechselrichter vorfindet. **Das läuft auch im Dry-Run**, weil Lesen gefahrlos ist:
+
+```
+--- Registerdiagnose ---
+  1068 Batteriekapazitaet : 10700 Wh (10.7 kWh) | konfiguriert: 10.7 kWh
+  1080 Management-Modus    : Extern via MODBUS (Rohwert 2)
+  1038 Max. Ladeleistung   : 4300.0 W
+  1040 Max. Entladeleistung: 4300.0 W
+  1042 Minimum SOC         : 10.0 %
+  1044 Maximum SOC         : 100.0 %
+  -> Limit-Register lesbar, Steuerung sollte funktionieren
+------------------------
+```
+
+So liest du das:
+
+- **Alle vier Limit-Register lesbar** → dein Wechselrichter unterstützt die Steuerung. Erscheint stattdessen `NICHT lesbar`, wird die Strategie an diesem Gerät nicht funktionieren.
+- **1068 gegen `battery_capacity`**: Weicht der gemeldete Wert deutlich ab, kommt eine Warnung — alle Energieberechnungen hängen an diesem Parameter.
+- **1080 Management-Modus**: rein informativ, zeigt die aktuell aktive Betriebsart.
+
+Zusätzlich wird bei jeder Planänderung der Ist-Zustand mitgeloggt:
+
+```
+[DRY-RUN] Register-Ist-Zustand: max_charge_power=4300.0 · max_soc=100.0 · min_soc=10.0
+```
+
+Damit siehst du **vor** dem Scharfschalten, was sich ändern würde. Im Beispiel oben stünde der Wechselrichter auf 10–100 % — die Strategie würde daraus 30–80 % machen.
+
 ### Zurückgelesene Werte weichen ab
 
 Erscheint im Log `Register-Rueckmeldung weicht ab`, akzeptiert der Wechselrichter die Limits nicht. Mögliche Ursachen:

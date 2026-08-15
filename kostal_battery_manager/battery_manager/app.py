@@ -239,6 +239,40 @@ try:
     except Exception as e:
         logger.warning(f"Byte-Order-Pruefung fehlgeschlagen: {e}")
 
+    # Einmalige Registerdiagnose beim Start. Rein lesend, laeuft daher auch
+    # im Dry-Run. Zeigt, ob die Limit-Register am Geraet ansprechbar sind,
+    # bevor ueberhaupt geschrieben wird.
+    try:
+        logger.info("--- Registerdiagnose ---")
+
+        capacity_wh = modbus_client.read_work_capacity()
+        if capacity_wh:
+            configured = config.get('battery_capacity', 0)
+            logger.info(f"  1068 Batteriekapazitaet : {capacity_wh:.0f} Wh "
+                        f"({capacity_wh/1000:.1f} kWh) | konfiguriert: {configured} kWh")
+            if configured and abs(capacity_wh / 1000 - configured) > 1.0:
+                logger.warning(f"  battery_capacity weicht deutlich ab - alle "
+                               f"Energieberechnungen beruhen darauf!")
+        else:
+            logger.warning("  1068 Batteriekapazitaet : nicht lesbar")
+
+        raw, mode = modbus_client.read_battery_management_mode()
+        logger.info(f"  1080 Management-Modus    : {mode} (Rohwert {raw})")
+
+        limits = modbus_client.read_battery_limits()
+        if limits:
+            logger.info(f"  1038 Max. Ladeleistung   : {limits.get('max_charge_power')} W")
+            logger.info(f"  1040 Max. Entladeleistung: {limits.get('max_discharge_power')} W")
+            logger.info(f"  1042 Minimum SOC         : {limits.get('min_soc')} %")
+            logger.info(f"  1044 Maximum SOC         : {limits.get('max_soc')} %")
+            logger.info("  -> Limit-Register lesbar, Steuerung sollte funktionieren")
+        else:
+            logger.error("  1038/1040/1042/1044 NICHT lesbar - die Limit-Steuerung "
+                         "wird an diesem Wechselrichter vermutlich nicht funktionieren")
+        logger.info("------------------------")
+    except Exception as e:
+        logger.warning(f"Registerdiagnose fehlgeschlagen: {e}")
+
     # v0.4.0 - Initialize consumption learner
     consumption_learner = None
     if config.get('enable_consumption_learning', True):
@@ -1893,16 +1927,35 @@ def controller_loop():
                             add_log('WARNING', f"Limits konnten nicht geschrieben werden: "
                                                f"{', '.join(report['failed'])}")
 
-                        # Verifikation: akzeptiert der Wechselrichter die Limits?
-                        if report['written'] and not modbus_client.dry_run:
+                        # Verifikation. Lesen ist gefahrlos und laeuft deshalb
+                        # AUCH im Dry-Run - nur so laesst sich vor dem
+                        # Scharfschalten pruefen, ob die Limit-Register am
+                        # Wechselrichter ueberhaupt ansprechbar sind.
+                        if report['written']:
                             readback = modbus_client.read_battery_limits()
                             app_state['limits_readback'] = readback
-                            for key, target in (('max_soc', plan['max_soc']),
-                                                ('min_soc', plan['min_soc'])):
-                                actual = readback.get(key)
-                                if actual is not None and abs(actual - target) > 1.0:
-                                    add_log('WARNING', f"Register-Rueckmeldung weicht ab: "
-                                                       f"{key} gesetzt={target} gelesen={actual}")
+
+                            if not readback:
+                                add_log('WARNING', 'Limit-Register 1038/1040/1042/1044 nicht '
+                                                   'lesbar - der Wechselrichter unterstuetzt sie '
+                                                   'moeglicherweise nicht')
+                            elif modbus_client.dry_run:
+                                # Im Dry-Run zeigen wir Ist gegen Plan, damit
+                                # erkennbar ist, was sich aendern wuerde.
+                                ist = ' · '.join(f"{k}={v}" for k, v in sorted(readback.items()))
+                                add_log('INFO', f'[DRY-RUN] Register-Ist-Zustand: {ist}')
+                            else:
+                                for key, target in (('max_soc', plan['max_soc']),
+                                                    ('min_soc', plan['min_soc']),
+                                                    ('max_charge_power', plan['max_charge_power']),
+                                                    ('max_discharge_power', plan['max_discharge_power'])):
+                                    actual = readback.get(key)
+                                    if actual is None:
+                                        continue
+                                    tolerance = 1.0 if 'soc' in key else 50.0
+                                    if abs(actual - target) > tolerance:
+                                        add_log('WARNING', f"Register-Rueckmeldung weicht ab: "
+                                                           f"{key} gesetzt={target} gelesen={actual}")
 
                         app_state['inverter']['mode'] = f"shaping_{plan['mode']}"
 
