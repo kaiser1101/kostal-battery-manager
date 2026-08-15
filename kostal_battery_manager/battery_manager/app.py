@@ -7,6 +7,7 @@ import os
 import json
 import logging
 import threading
+import time
 from datetime import datetime
 from flask import Flask, render_template, jsonify, request, redirect, url_for, make_response
 from flask_cors import CORS
@@ -61,6 +62,10 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 
 # Configuration
 CONFIG_PATH = os.getenv('CONFIG_PATH', '/data/options.json')
+
+class _SkipCycle(Exception):
+    """Bricht den Planungsschritt ab, ohne als Fehler zu gelten."""
+
 
 class _SkipTibber(Exception):
     """Signalisiert, dass Tibber-Abfragen in dieser Strategie entfallen."""
@@ -168,7 +173,8 @@ app_state = {
     },
     'daily_battery_schedule': None,  # v0.9.0 - Full-day predictive plan (price strategy)
     'shaping_plan': None,            # v0.10.0 - Aktueller PV-Shaping-Plan (Grenzwerte)
-    'limits_readback': None,         # v0.10.0 - Zurueckgelesene Limit-Register
+    'limits_readback': None,
+    'hold_test': None,             # v0.11.0 - Haltetest der Leistungsregister         # v0.10.0 - Zurueckgelesene Limit-Register
     'logs': []
 }
 
@@ -762,6 +768,119 @@ def api_config():
     
     return jsonify(config)
 
+def read_soc(ha_client, config, fallback=None):
+    """
+    Liest den Batterie-SOC aus Home Assistant.
+
+    HA liefert bei Neustarts oder Stoerungen 'unavailable'/'unknown' -
+    Text, an dem float() scheitert. Ein blosses `or 0` faengt das NICHT ab,
+    weil nicht-leerer Text wahr ist. Genau daran ist der Regelzyklus
+    abgestuerzt; im externen Modus bedeutet ein ausgefallener Zyklus einen
+    ausbleibenden Schreibzugriff und damit die Timeout-Blockade.
+    """
+    raw = ha_client.get_state(config.get('battery_soc_sensor', ''))
+    if raw is None or str(raw).strip().lower() in ('', 'unavailable', 'unknown', 'none'):
+        logger.warning(f"Battery-SOC-Sensor liefert '{raw}' - kein verwertbarer Wert")
+        return fallback
+    try:
+        return float(raw)
+    except (ValueError, TypeError):
+        logger.warning(f"Battery-SOC-Sensor liefert unerwarteten Wert '{raw}'")
+        return fallback
+
+
+@app.route('/api/hold_test', methods=['POST'])
+def api_hold_test():
+    """
+    Haltetest der Leistungsregister (v0.11.0).
+
+    Der Registertest beantwortet nur, ob ein Wert die naechste Sekunde
+    ueberlebt. Entscheidend ist aber, ob er ueber MINUTEN haelt - sonst
+    ist er als Steuerung wertlos.
+
+    Deshalb: einen deutlich abweichenden Wert schreiben (Default 2000 W,
+    weit weg von allem, was die Firmware selbst setzt), dann nur noch
+    beobachten. Am Ende Originalwert wiederherstellen.
+
+    Ein Ladelimit begrenzt nur, es erzwingt nichts - der Test kann die
+    Batterie also nicht zu etwas zwingen, hoechstens kurzzeitig bremsen.
+    """
+    if not modbus_client:
+        return jsonify({'success': False, 'error': 'Modbus-Client nicht verfuegbar'}), 500
+    # get(key, {}) greift NICHT, wenn der Schluessel mit Wert None existiert
+    if (app_state.get('hold_test') or {}).get('running'):
+        return jsonify({'success': False, 'error': 'Haltetest laeuft bereits'}), 409
+
+    body = request.get_json(silent=True) or {}
+    test_value = float(body.get('value', 2000))
+    duration = int(body.get('duration', 180))
+    interval = int(body.get('interval', 10))
+
+    before = modbus_client.read_battery_limits()
+    if 'max_charge_power' not in before:
+        return jsonify({'success': False, 'error': 'Register 1038 nicht lesbar'}), 200
+
+    original = before['max_charge_power']
+    app_state['hold_test'] = {
+        'running': True, 'original': original, 'test_value': test_value,
+        'samples': [], 'verdict': None,
+    }
+
+    def run():
+        was_dry_run = modbus_client.dry_run
+        modbus_client.dry_run = False
+        started = time.monotonic()
+        try:
+            modbus_client.set_max_charge_power(test_value)
+            add_log('INFO', f'Haltetest gestartet: Register 1038 auf {test_value} W '
+                            f'(Ausgangswert {original} W), Beobachtung {duration}s')
+            held = True
+            while time.monotonic() - started < duration:
+                time.sleep(interval)
+                value = modbus_client.read_battery_limits().get('max_charge_power')
+                elapsed = round(time.monotonic() - started)
+                app_state['hold_test']['samples'].append({'t': elapsed, 'value': value})
+                if value is None:
+                    continue
+                if abs(value - test_value) > 1.0:
+                    held = False
+                    app_state['hold_test']['verdict'] = (
+                        f'Nach {elapsed}s von der Firmware ueberschrieben '
+                        f'({test_value} -> {value} W). Ein Sollwert haelt hier nicht; '
+                        f'zum Halten muesste haeufiger als alle {elapsed}s geschrieben werden.')
+                    add_log('WARNING', f'Haltetest: Wert nach {elapsed}s ueberschrieben '
+                                       f'({test_value} -> {value} W)')
+                    break
+            if held:
+                app_state['hold_test']['verdict'] = (
+                    f'Wert hielt ueber die volle Beobachtungsdauer von {duration}s. '
+                    f'Die Leistungsregister sind als Steuerung nutzbar.')
+                add_log('INFO', f'Haltetest: {test_value} W hielt {duration}s - '
+                                f'Leistungsregister nutzbar')
+        except Exception as e:
+            app_state['hold_test']['verdict'] = f'Fehler: {e}'
+            logger.error(f"Haltetest fehlgeschlagen: {e}", exc_info=True)
+        finally:
+            try:
+                modbus_client.set_max_charge_power(original)
+                add_log('INFO', f'Haltetest beendet, Register 1038 auf {original} W zurueckgesetzt')
+            except Exception as e:
+                logger.error(f"Konnte Originalwert nicht wiederherstellen: {e}")
+            modbus_client.dry_run = was_dry_run
+            modbus_client.last_limits = {}
+            app_state['hold_test']['running'] = False
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({'success': True, 'message': f'Haltetest laeuft {duration}s',
+                    'original': original, 'test_value': test_value})
+
+
+@app.route('/api/hold_test', methods=['GET'])
+def api_hold_test_status():
+    """Zwischenstand des laufenden oder letzten Haltetests."""
+    return jsonify(app_state.get('hold_test') or {'running': False, 'samples': []})
+
+
 @app.route('/api/register_test', methods=['POST'])
 def api_register_test():
     """
@@ -784,6 +903,18 @@ def api_register_test():
     if not before:
         return jsonify({'success': False,
                         'error': 'Limit-Register nicht lesbar - Test nicht moeglich'}), 200
+
+    # Vorabpruefung auf Fluechtigkeit: manche Register (v.a. 1038/1040)
+    # werden von der Firmware laufend mit der momentanen Leistungsfaehigkeit
+    # der Batterie ueberschrieben. Aendern sie sich OHNE unser Zutun, ist ein
+    # Schreibtest sinnlos - der Wert waere ohnehin sofort wieder weg.
+    time.sleep(2)
+    drift_check = modbus_client.read_battery_limits()
+    volatile = {}
+    for name, value in before.items():
+        second = drift_check.get(name)
+        if second is not None and abs(second - value) > 0.5:
+            volatile[name] = (value, second)
 
     # Testwerte: minimale, ungefaehrliche Abweichung vom Ist-Zustand
     setters = {
@@ -1921,9 +2052,7 @@ def controller_loop():
                 if (config.get('charging_strategy', 'price') == 'price'
                         and ha_client and tibber_optimizer and consumption_learner):
                     try:
-                        current_soc = float(ha_client.get_state(
-                            config.get('battery_soc_sensor', 'sensor.zwh8_8500_battery_soc')
-                        ) or 50)  # Fallback to 50% if not available
+                        current_soc = read_soc(ha_client, config, fallback=50.0)
 
                         # Get Tibber prices
                         prices = []
@@ -1985,9 +2114,13 @@ def controller_loop():
                 # Eigenverbrauchs-Optimierung des Wechselrichters darin laufen.
                 if strategy == 'forecast' and ha_client and modbus_client and pv_shaping_planner:
                     try:
-                        current_soc = float(ha_client.get_state(
-                            config.get('battery_soc_sensor', 'sensor.zwh8_8500_battery_soc')
-                        ) or 0)
+                        # Bei unbrauchbarem Sensorwert den letzten bekannten SOC
+                        # weiterverwenden - der Zyklus MUSS durchlaufen.
+                        current_soc = read_soc(ha_client, config,
+                                               fallback=app_state['battery'].get('soc'))
+                        if current_soc is None:
+                            add_log('WARNING', 'SOC unbekannt und kein Vorwert - Planung uebersprungen')
+                            raise _SkipCycle()
                         app_state['battery']['soc'] = current_soc
                         battery_capacity = config.get('battery_capacity', 10.6)
 
@@ -2048,6 +2181,8 @@ def controller_loop():
 
                         app_state['inverter']['mode'] = f"shaping_{plan['mode']}"
 
+                    except _SkipCycle:
+                        pass
                     except Exception as e:
                         logger.error(f"Error in PV shaping: {e}", exc_info=True)
 
@@ -2055,9 +2190,8 @@ def controller_loop():
                 elif strategy == 'price' and ha_client and kostal_api and modbus_client and tibber_optimizer:
                     try:
                         # Hole aktuelle Werte
-                        current_soc = float(ha_client.get_state(
-                            config.get('battery_soc_sensor', 'sensor.zwh8_8500_battery_soc')
-                        ) or 0)
+                        current_soc = read_soc(ha_client, config,
+                                               fallback=app_state['battery'].get('soc') or 0.0)
                         app_state['battery']['soc'] = current_soc
 
                         # v0.3.4 - Use existing parameters consistently

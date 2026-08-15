@@ -194,11 +194,17 @@
                 <button onclick="runRegisterTest()" class="btn btn-secondary">
                     🔬 Registertest ausführen
                 </button>
+                <button onclick="runHoldTest()" class="btn btn-secondary" style="margin-left:0.5rem;">
+                    ⏱️ Haltetest (3 min)
+                </button>
                 <div style="font-size: 0.8rem; opacity: 0.65; margin-top: 0.5rem;">
                     Prüft, ob der Wechselrichter die Limit-Register annimmt. Schreibt kurzzeitig
                     minimale Testwerte und stellt die Originalwerte sofort wieder her —
                     auch im Dry-Run, denn genau das ist die Frage.
                 </div>
+                <pre id="hold-test-result" style="display:none; margin-top: 1rem; padding: 0.75rem;
+                     background: rgba(128,128,128,0.12); border-radius: 6px; font-size: 0.8rem;
+                     overflow-x: auto; white-space: pre;"></pre>
                 <pre id="register-test-result" style="display:none; margin-top: 1rem; padding: 0.75rem;
                      background: rgba(128,128,128,0.12); border-radius: 6px; font-size: 0.8rem;
                      overflow-x: auto; white-space: pre;"></pre>
@@ -379,6 +385,52 @@ function updateChargingStatus() {
 
 // Update charging status every 5 seconds
 setInterval(updateChargingStatus, 5000);
+
+// v0.11.0 - Haltetest: haelt ein geschriebener Leistungswert ueber Minuten?
+function runHoldTest() {
+    if (!confirm('Der Haltetest schreibt Register 1038 (max. Ladeleistung) auf 2000 W '
+               + 'und beobachtet 3 Minuten lang, ob der Wert stehen bleibt.\n\n'
+               + 'Ein Ladelimit begrenzt nur, es erzwingt nichts. Danach wird der '
+               + 'Originalwert wiederhergestellt.\n\nStarten?')) {
+        return;
+    }
+    const out = document.getElementById('hold-test-result');
+    out.style.display = '';
+    out.textContent = 'Haltetest wird gestartet...';
+
+    fetch(apiUrl('api/hold_test'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({value: 2000, duration: 180, interval: 10})
+    })
+    .then(r => r.json())
+    .then(d => {
+        if (!d.success) { out.textContent = 'Fehler: ' + (d.error || 'unbekannt'); return; }
+        pollHoldTest();
+    })
+    .catch(e => { out.textContent = 'Fehler: ' + e; });
+}
+
+function pollHoldTest() {
+    const out = document.getElementById('hold-test-result');
+    fetch(apiUrl('api/hold_test'))
+        .then(r => r.json())
+        .then(d => {
+            let t = `Ausgangswert: ${d.original} W   |   geschrieben: ${d.test_value} W\n\n`;
+            (d.samples || []).forEach(s => {
+                const abw = (s.value != null && Math.abs(s.value - d.test_value) > 1);
+                t += `  nach ${String(s.t).padStart(3)}s : ${s.value} W ${abw ? ' ← überschrieben' : ' ✓'}\n`;
+            });
+            if (d.running) {
+                t += '\nlaeuft...';
+                setTimeout(pollHoldTest, 5000);
+            } else if (d.verdict) {
+                t += '\n' + d.verdict;
+            }
+            out.textContent = t;
+        })
+        .catch(e => { out.textContent = 'Fehler: ' + e; });
+}
 
 // v0.10.8 - Schreibtest der Limit-Register
 function runRegisterTest() {

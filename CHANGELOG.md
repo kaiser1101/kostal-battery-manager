@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.10.9] - 2026-08-15
+
+### Fixed
+- **Regelzyklus stuerzte ab, wenn der SOC-Sensor 'unavailable' meldet.**
+  `float('unavailable')` wirft eine Exception, und das uebliche `or 0`
+  faengt das nicht ab, weil nicht-leerer Text wahr ist. Im externen
+  Modbus-Modus ist das gefaehrlich: ein ausgefallener Zyklus bedeutet
+  einen ausbleibenden Schreibzugriff, und nach dem Timeout blockiert der
+  Wechselrichter die Batterie. Der Zyklus verwendet jetzt den zuletzt
+  bekannten SOC weiter.
+
+### Added
+- **Haltetest** (`POST /api/hold_test`, Knopf im Dashboard): schreibt einen
+  deutlich abweichenden Wert (Default 2000 W) auf Register 1038 und
+  beobachtet ihn 3 Minuten lang, ohne nachzuschreiben.
+  - Der Registertest zeigt nur, ob ein Wert die naechste Sekunde
+    ueberlebt. Entscheidend fuer eine Steuerung ist aber, ob er ueber
+    Minuten haelt.
+  - Wird er ueberschrieben, nennt der Test den Zeitpunkt - daraus ergibt
+    sich, wie oft nachgeschrieben werden muesste.
+  - Der Originalwert wird am Ende wiederhergestellt.
+
 ## [0.10.8] - 2026-08-15
 
 ### Added
