@@ -1,4 +1,4 @@
-# Kostal Battery Manager
+# Kostal Battery Manager edited
 
 Ein professionelles Home Assistant Add-on für die intelligente Batteriesteuerung von Kostal Plenticore Plus Wechselrichtern mit dynamischer Preisoptimierung (Tibber, Awattar, etc.).
 
@@ -208,4 +208,4 @@ Bei Fragen oder Problemen:
 
 ---
 
-**Made with ❤️ for Home Assistant**
+**Made with ❤️ for Home Assistant **
