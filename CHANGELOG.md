@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.10.4] - 2026-08-15
+
+### Fixed
+- **Forecast.Solar Ratelimit nach Sekunden erschoepft (HTTP 429).** Der
+  Planer fragte die Prognose an vier Stellen pro Zyklus ab (Nachtbedarf,
+  Fehlbetrag morgen, Kalibrierung, Drosselung), jeweils mal Anzahl der
+  Dachflaechen - rund 10 Abrufe alle 30 Sekunden bei einem Limit von 12
+  pro Stunde.
+  - Der Cache wurde nur bei Erfolg gesetzt; nach dem ersten 429 lief jeder
+    Zyklus erneut ins Limit
+  - Ein fehlendes Datum im Cache loeste einen kompletten Neuabruf aus
+- Cache haelt jetzt die Rohdaten aller Tage aus **einem** Abruf und
+  beantwortet daraus auch Anfragen fuer Tage ohne Daten
+- Nach HTTP 429 wird bis zum von der API genannten `retry-at` pausiert,
+  nach Netzwerkfehlern 10 Minuten
+
+### Changed
+- Cache-Dauer von 15 auf 30 Minuten erhoeht (2 Abrufe/Stunde)
+- Ebenen mit identischer Neigung UND Ausrichtung werden zu einer
+  zusammengefasst. Gleiche Geometrie ergibt dieselbe Tageskurve, nur
+  skaliert - die Summe der kWp ist exakt aequivalent und halbiert die
+  Abrufe. Unterschiedliche Geometrie bleibt getrennt.
+
+### Documentation
+- CONFIGURATION.md: Ratelimit, Cache-Verhalten und die Log-Meldung bei
+  Ueberschreitung dokumentiert
+
 ## [0.10.3] - 2026-08-15
 
 ### Documentation

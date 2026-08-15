@@ -125,7 +125,19 @@ forecast_solar_roof2_azimuth: 0
 forecast_solar_roof2_kwp: 2.5
 ```
 
-Zwingend sind nur **Koordinaten**; fehlen sie, bleibt die API aus. Ein Abruf deckt **heute und morgen** ab und wird 15 Minuten zwischengespeichert — das hält die freie Nutzung im Ratelimit. Ein Key erhöht nur das Limit, die Daten sind dieselben.
+Zwingend sind nur **Koordinaten**; fehlen sie, bleibt die API aus. Ein Key erhöht nur das Ratelimit, die Daten sind dieselben.
+
+**Ratelimit:** Die öffentliche Schnittstelle erlaubt **12 Abrufe pro Stunde und IP**. Das Add-on hält das ein:
+- Ein Abruf liefert **alle Stundenwerte für heute und morgen** auf einmal
+- Ergebnis wird **30 Minuten** zwischengespeichert → 2 Abrufe/Stunde pro Dachfläche
+- Ebenen mit identischer Neigung *und* Ausrichtung werden zusammengefasst (gleiche Kurve, nur skaliert) — zwei solche Flächen kosten also nur einen Abruf
+- Nach einem `HTTP 429` wird bis zum von der API genannten `retry-at` pausiert, nach Netzwerkfehlern 10 Minuten
+
+Im Log erkennst du eine Überschreitung an:
+```
+Forecast.Solar Ratelimit erreicht (12 Abrufe pro 3600s). Naechster Versuch: ...
+```
+Das ist kein Defekt — das Add-on wartet dann selbstständig ab.
 
 **Fallback: HA-Sensoren.** Alternativ liest das Add-on `pv_production_today_roof1/2` und erwartet dort ein Attribut `wh_hours` mit Stundenwerten.
 

@@ -31,12 +31,41 @@ class ForecastSolarAPI:
         self.longitude = longitude
         self.base_url = "https://api.forecast.solar"
 
-        # Cache for API responses (15 min cache)
+        # Cache fuer API-Antworten. Ein Abruf deckt alle Ebenen und beide
+        # Tage ab; danach wird 30 Minuten lang nichts mehr angefragt.
+        # Ohne Key erlaubt forecast.solar nur 12 Abrufe pro Stunde und IP.
         self._cache = {}
         self._cache_timestamp = None
-        self._cache_duration = timedelta(minutes=15)
+        self._cache_duration = timedelta(minutes=30)
+
+        # Sperre nach einem Fehlschlag, damit ein 429 keine Abruf-Lawine
+        # ausloest. Wird bei HTTP 429 aus der Antwort ("retry-at") gesetzt.
+        self._retry_not_before = None
 
         logger.info(f"Forecast.Solar API initialized (lat={latitude}, lon={longitude})")
+
+    @staticmethod
+    def merge_planes(planes: list) -> list:
+        """
+        Fasst Ebenen mit identischer Neigung UND Ausrichtung zusammen.
+
+        Zwei Ebenen gleicher Geometrie liefern dieselbe Tageskurve, nur
+        anders skaliert - die Summe ihrer kWp ergibt exakt dasselbe
+        Ergebnis mit der Haelfte der Abrufe. Bei unterschiedlicher
+        Geometrie bleiben sie getrennt.
+        """
+        merged = {}
+        for plane in planes:
+            key = (plane['declination'], plane['azimuth'])
+            if key in merged:
+                merged[key]['kwp'] += plane['kwp']
+            else:
+                merged[key] = dict(plane)
+        result = list(merged.values())
+        if len(result) < len(planes):
+            logger.info(f"{len(planes)} Ebenen mit gleicher Geometrie zu {len(result)} "
+                        f"zusammengefasst - spart API-Abrufe")
+        return result
 
     def _build_url(self, endpoint: str, declination: int, azimuth: int, kwp: float) -> str:
         """
@@ -86,13 +115,24 @@ class ForecastSolarAPI:
         """
         target_date = for_date or datetime.now().astimezone().date()
 
-        # Cache haelt die Rohdaten je Datum - so kostet die Abfrage fuer
-        # morgen keinen zusaetzlichen API-Call (Ratelimit ohne Key!)
+        # Der Cache haelt die Rohdaten ALLER Tage aus einem Abruf.
+        # Wichtig: auch ein fehlendes Datum wird aus dem gueltigen Cache
+        # beantwortet (mit {}), sonst loeste jede Abfrage fuer einen Tag
+        # ohne Daten einen neuen Abruf aus.
         if self._is_cache_valid():
-            cached = self._cache.get('by_date', {}).get(str(target_date))
-            if cached is not None:
-                logger.debug(f"Using cached forecast.solar data for {target_date}")
-                return cached
+            by_date = self._cache.get('by_date', {})
+            logger.debug(f"Using cached forecast.solar data for {target_date}")
+            return by_date.get(str(target_date), {})
+
+        # Nach einem Fehlschlag (v.a. HTTP 429) erst wieder anfragen, wenn
+        # die Sperrzeit abgelaufen ist.
+        if self._retry_not_before and datetime.now() < self._retry_not_before:
+            wait = int((self._retry_not_before - datetime.now()).total_seconds())
+            logger.debug(f"Forecast.Solar gesperrt, naechster Versuch in {wait}s")
+            return {}
+
+        # Gleiche Geometrie zusammenfassen - halbiert hier die Abrufe
+        planes = self.merge_planes(planes)
 
         try:
             by_date = {}
@@ -119,8 +159,12 @@ class ForecastSolarAPI:
                 response = requests.get(url, timeout=10)
 
                 if response.status_code != 200:
+                    if response.status_code == 429:
+                        self._apply_rate_limit_backoff(response)
+                        # Weitere Ebenen wuerden ebenfalls abgelehnt
+                        return {}
                     logger.error(f"Forecast.Solar API error: HTTP {response.status_code}")
-                    logger.error(f"Response: {response.text}")
+                    logger.error(f"Response: {response.text[:300]}")
                     continue
 
                 data = response.json()
@@ -143,33 +187,65 @@ class ForecastSolarAPI:
                     logger.warning(f"Plane {i+1}: unerwartete API-Antwort, "
                                    f"'result' fehlt oder ist leer")
 
-            self._cache['by_date'] = by_date
-            hourly_forecast = by_date.get(str(target_date), {})
-
             if by_date:
                 # Zeitstempel setzen, NICHT self._cache ersetzen - sonst
                 # ginge die Tagesaufteilung verloren und die Prognose fuer
                 # morgen wuerde bei jedem Aufruf neu abgerufen.
+                self._cache['by_date'] = by_date
                 self._cache_timestamp = datetime.now()
+                self._retry_not_before = None
                 logger.info(f"✓ Forecast.Solar: {sum(len(v) for v in by_date.values())} Stundenwerte "
-                            f"fuer {len(by_date)} Tage abgerufen")
-                logger.debug(f"Hourly forecast for {target_date} (kWh): {hourly_forecast}")
+                            f"fuer {len(by_date)} Tage abgerufen "
+                            f"({len(planes)} Abruf(e))")
+            else:
+                # Erfolgreich angefragt, aber nichts Brauchbares erhalten.
+                # Kurze Sperre, damit der 30s-Regeltakt nicht hammert.
+                self._retry_not_before = datetime.now() + timedelta(minutes=10)
+                logger.warning("Forecast.Solar lieferte keine verwertbaren Daten - "
+                               "naechster Versuch in 10 Minuten")
 
+            hourly_forecast = by_date.get(str(target_date), {})
             if not hourly_forecast:
                 logger.warning(f"Keine Stundenprognose fuer {target_date} verfuegbar")
 
             return hourly_forecast
 
         except requests.RequestException as e:
-            logger.error(f"Network error calling Forecast.Solar API: {e}")
+            # Netzwerkfehler ebenfalls sperren, sonst laeuft der Regeltakt
+            # bei getrennter Verbindung in eine Abruf-Schleife.
+            self._retry_not_before = datetime.now() + timedelta(minutes=10)
+            logger.error(f"Netzwerkfehler bei Forecast.Solar: {e} - "
+                         f"naechster Versuch in 10 Minuten")
             return {}
         except Exception as e:
             logger.error(f"Error getting hourly forecast from Forecast.Solar: {e}", exc_info=True)
             return {}
 
+    def _apply_rate_limit_backoff(self, response):
+        """
+        Wertet ein HTTP 429 aus und setzt die Sperrzeit.
+
+        forecast.solar nennt in der Antwort ein "retry-at" - danach richten
+        wir uns, sonst 30 Minuten pauschal.
+        """
+        retry_at = None
+        try:
+            info = response.json().get('message', {}).get('ratelimit', {})
+            limit = info.get('limit')
+            period = info.get('period')
+            if info.get('retry-at'):
+                retry_at = datetime.fromisoformat(info['retry-at']).replace(tzinfo=None)
+            logger.error(f"Forecast.Solar Ratelimit erreicht "
+                         f"({limit} Abrufe pro {period}s). Naechster Versuch: "
+                         f"{retry_at or 'in 30 Minuten'}")
+        except Exception:
+            logger.error("Forecast.Solar Ratelimit erreicht (HTTP 429)")
+
+        self._retry_not_before = retry_at or (datetime.now() + timedelta(minutes=30))
+
     def _is_cache_valid(self) -> bool:
         """Check if cached data is still valid"""
-        if not self._cache or not self._cache_timestamp:
+        if not self._cache_timestamp or 'by_date' not in self._cache:
             return False
 
         age = datetime.now() - self._cache_timestamp
