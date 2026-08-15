@@ -30,10 +30,48 @@ class HomeAssistantClient:
         else:
             logger.info("Home Assistant API client initialized")
     
+    def set_state(self, entity_id, state, attributes=None):
+        """
+        Schreibt den Zustand einer Entitaet nach Home Assistant.
+
+        Damit veroeffentlicht das Add-on seinen Plan als HA-Entitaeten -
+        aufgezeichnet vom Recorder, sichtbar im Verlauf, nutzbar in
+        Automatisierungen.
+
+        Hinweis: Ueber die REST-API angelegte Entitaeten stehen nicht in der
+        Entitaets-Registry. Nach einem HA-Neustart sind sie weg, bis das
+        Add-on sie erneut schreibt - also laengstens fuer ein Regelintervall.
+
+        Args:
+            entity_id: z.B. 'sensor.kostal_bm_target_soc'
+            state: Zustandswert (wird zu str konvertiert)
+            attributes: dict mit zusaetzlichen Attributen
+
+        Returns:
+            bool: True bei Erfolg
+        """
+        if not self.token:
+            logger.debug(f"Cannot set state for {entity_id} - no token")
+            return False
+
+        try:
+            url = f"{self.api_url}/api/states/{entity_id}"
+            payload = {'state': str(state), 'attributes': attributes or {}}
+            response = requests.post(url, json=payload, headers=self.headers, timeout=5)
+
+            if response.status_code in (200, 201):
+                return True
+            logger.warning(f"Failed to set state for {entity_id}: {response.status_code}")
+            return False
+
+        except Exception as e:
+            logger.error(f"Error setting state for {entity_id}: {e}")
+            return False
+
     def get_state(self, entity_id):
         """
         Get state of an entity
-        
+
         Args:
             entity_id: Entity ID (e.g., 'sensor.battery_soc')
         

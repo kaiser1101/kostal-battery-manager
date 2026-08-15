@@ -176,6 +176,55 @@ Fallback, solange für eine Stunde noch keine Daten vorliegen. Alternativ `avera
 
 > **Seit v0.10.0 gibt es kein `manual_load_profile` mehr.** Ein handgeschriebenes Profil hätte gegen die echten Messwerte konkurriert. Zum Beschleunigen der Anlaufphase stattdessen die Seite „Verbrauchsimport" nutzen: CSV-Upload oder Direktimport der Historie aus Home Assistant.
 
+## Home-Assistant-Entitäten
+
+Mit `publish_ha_sensors: true` (Standard) veröffentlicht das Add-on seinen Plan als HA-Entitäten. Der Recorder schreibt sie mit — damit bekommst du Verlauf, Diagramme und Auslöser für Automatisierungen, ohne dass das Add-on eine eigene Historie führen müsste.
+
+| Entität | Bedeutung |
+|---|---|
+| `sensor.kostal_bm_target_soc` | Aktueller SOC-Deckel (%) |
+| `sensor.kostal_bm_min_soc` | Aktuelle Entladegrenze (%) |
+| `sensor.kostal_bm_max_charge_power` | Aktuelle Ladeleistungsgrenze (W) |
+| `sensor.kostal_bm_overnight_need` | Prognostizierter Nachtbedarf (kWh) |
+| `sensor.kostal_bm_tomorrow_shortfall` | Fehlbetrag morgen (kWh) |
+| `sensor.kostal_bm_pv_forecast_today` | PV-Prognose heute (kWh) |
+| `sensor.kostal_bm_status` | `normal`, `safety` oder `calibration` |
+
+Der Status-Sensor trägt die **Begründung als Attribut** — im Verlauf ist damit nachvollziehbar, warum eine Entscheidung fiel, nicht nur welche. Ebenso der zurückgelesene Registerzustand und ob der Dry-Run aktiv war.
+
+Das Präfix lässt sich über `ha_entity_prefix` ändern.
+
+### Nützliches Diagramm für die Beobachtungsphase
+
+```yaml
+type: history-graph
+hours_to_show: 72
+entities:
+  - sensor.deine_anlage_battery_soc   # dein Ist-SOC
+  - sensor.kostal_bm_target_soc              # der Deckel
+  - sensor.kostal_bm_min_soc                 # die Untergrenze
+```
+
+Daran siehst du direkt, ob der SOC im Korridor bleibt und ob der Deckel greift.
+
+### Beispiel: Warnung bei blockierter Batterie
+
+```yaml
+automation:
+  - alias: "Batterie blockiert"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.kostal_bm_max_charge_power
+        below: 1
+        for: "00:10:00"
+    action:
+      - service: notify.persistent_notification
+        data:
+          message: "Ladeleistungsgrenze steht auf 0 W - Batterie moeglicherweise blockiert"
+```
+
+> **Einschränkung:** Über die REST-API angelegte Entitäten stehen nicht in der Entitäts-Registry. Nach einem HA-Neustart fehlen sie, bis das Add-on sie erneut schreibt — längstens ein `control_interval`, also 30 Sekunden. Umbenennen über die HA-Oberfläche ist nicht möglich.
+
 ## Fehlersuche
 
 ### „Warte auf ersten Plan"

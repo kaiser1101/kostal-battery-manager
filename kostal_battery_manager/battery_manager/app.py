@@ -2050,6 +2050,71 @@ def release_limits_on_shutdown():
         logger.error(f"Konnte Grenzwerte beim Beenden nicht freigeben: {e}")
 
 
+def publish_plan_to_ha(plan, readback=None):
+    """
+    Veroeffentlicht den aktuellen Plan als HA-Entitaeten (v0.11.1).
+
+    Damit landet der Zustand im HA-Recorder: Verlauf ueber Wochen,
+    Diagramme im Dashboard, Ausloeser fuer Automatisierungen. Das Add-on
+    selbst haelt keine Historie - HA kann das ohnehin besser.
+
+    Wird bei jedem Regelzyklus aufgerufen, also alle control_interval
+    Sekunden. Fehler hier duerfen die Steuerung nicht stoppen.
+    """
+    if not ha_client or not plan:
+        return
+
+    prefix = config.get('ha_entity_prefix', 'kostal_bm')
+    diag = plan.get('diagnostics') or {}
+    dry = config.get('dry_run', False)
+
+    entities = [
+        (f'sensor.{prefix}_target_soc', plan.get('max_soc'), {
+            'friendly_name': 'Batteriemanager Ziel-SOC',
+            'unit_of_measurement': '%', 'device_class': 'battery',
+            'state_class': 'measurement', 'icon': 'mdi:battery-arrow-up'}),
+        (f'sensor.{prefix}_min_soc', plan.get('min_soc'), {
+            'friendly_name': 'Batteriemanager Min-SOC',
+            'unit_of_measurement': '%', 'device_class': 'battery',
+            'state_class': 'measurement', 'icon': 'mdi:battery-arrow-down'}),
+        (f'sensor.{prefix}_max_charge_power', plan.get('max_charge_power'), {
+            'friendly_name': 'Batteriemanager max. Ladeleistung',
+            'unit_of_measurement': 'W', 'device_class': 'power',
+            'state_class': 'measurement', 'icon': 'mdi:flash'}),
+        (f'sensor.{prefix}_overnight_need', diag.get('overnight_need_kwh'), {
+            'friendly_name': 'Batteriemanager Nachtbedarf',
+            'unit_of_measurement': 'kWh', 'device_class': 'energy',
+            'state_class': 'measurement', 'icon': 'mdi:weather-night'}),
+        (f'sensor.{prefix}_tomorrow_shortfall', diag.get('tomorrow_shortfall_kwh'), {
+            'friendly_name': 'Batteriemanager Fehlbetrag morgen',
+            'unit_of_measurement': 'kWh', 'device_class': 'energy',
+            'state_class': 'measurement', 'icon': 'mdi:weather-sunny-alert'}),
+        (f'sensor.{prefix}_pv_forecast_today', diag.get('pv_today_kwh'), {
+            'friendly_name': 'Batteriemanager PV-Prognose heute',
+            'unit_of_measurement': 'kWh', 'device_class': 'energy',
+            'state_class': 'measurement', 'icon': 'mdi:solar-power'}),
+        # Status traegt die Begruendung als Attribut - so ist im Verlauf
+        # nachvollziehbar, WARUM eine Entscheidung fiel.
+        (f'sensor.{prefix}_status', plan.get('mode'), {
+            'friendly_name': 'Batteriemanager Status',
+            'icon': 'mdi:shield-check',
+            'begruendung': plan.get('reason'),
+            'dry_run': dry,
+            'aktueller_soc': plan.get('current_soc'),
+            'sonnenuntergang': diag.get('sunset_hour'),
+            'register_ist': readback or {},
+        }),
+    ]
+
+    for entity_id, value, attrs in entities:
+        if value is None:
+            value = 'unknown'
+        try:
+            ha_client.set_state(entity_id, value, attrs)
+        except Exception as e:
+            logger.debug(f"Konnte {entity_id} nicht veroeffentlichen: {e}")
+
+
 def controller_loop():
     """Background thread for battery control"""
     import time
@@ -2209,6 +2274,11 @@ def controller_loop():
                                                            f"{key} gesetzt={target} gelesen={actual}")
 
                         app_state['inverter']['mode'] = f"shaping_{plan['mode']}"
+
+                        # Plan als HA-Entitaeten veroeffentlichen (Verlauf,
+                        # Diagramme, Automatisierungen)
+                        if config.get('publish_ha_sensors', True):
+                            publish_plan_to_ha(plan, app_state.get('limits_readback'))
 
                     except _SkipCycle:
                         pass

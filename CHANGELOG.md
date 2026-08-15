@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.11.1] - 2026-08-15
+
+### Added
+- **Plan wird als Home-Assistant-Entitaeten veroeffentlicht**
+  (`publish_ha_sensors: true`, Praefix ueber `ha_entity_prefix`):
+  Ziel-SOC, Min-SOC, Ladeleistungsgrenze, Nachtbedarf, Fehlbetrag morgen,
+  PV-Prognose und Status.
+  - Der Recorder schreibt sie mit: Verlauf, Diagramme und Ausloeser fuer
+    Automatisierungen, ohne dass das Add-on eine eigene Historie fuehren
+    muss.
+  - Der Status-Sensor traegt die Begruendung als Attribut - im Verlauf ist
+    damit nachvollziehbar, WARUM eine Entscheidung fiel.
+- `HomeAssistantClient.set_state()` zum Schreiben von Entitaeten.
+
+### Documentation
+- CONFIGURATION.md: Entitaetsliste, Beispieldiagramm fuer die
+  Beobachtungsphase und eine Beispielautomatisierung fuer den Fall einer
+  blockierten Batterie.
+
 ## [0.11.0] - 2026-08-15
 
 ### Verified

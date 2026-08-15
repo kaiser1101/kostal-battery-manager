@@ -1,5 +1,5 @@
 name: Kostal Battery Manager edited by Phil
-version: "0.11.0"
+version: "0.11.1"
 slug: kostal_battery_manager
 description: "description: Intelligente Batteriesteuerung für Kostal Plenticore Plus mit PV-Prognose, Verbrauchslernen, intelligenter SOC-Optimierung und bedarfsgerechter Batterieladung"
 url: "https://github.com/kaiser1101/kostal-battery-manager.git"
@@ -102,6 +102,10 @@ options:
   # Periodische Kalibrierladung auf 100% fuer die BMS-SOC-Schaetzung
   calibration_interval_days: 28  # 0 = deaktiviert
   calibration_min_pv_kwh: 15.0  # Nur an Tagen mit mind. so viel PV-Prognose
+  # Plan als Home-Assistant-Entitaeten veroeffentlichen (Verlauf, Diagramme,
+  # Automatisierungen). Entitaeten heissen sensor.<prefix>_...
+  publish_ha_sensors: true
+  ha_entity_prefix: "kostal_bm"
   # v0.4.0 - Consumption Learning & Optimization
   enable_consumption_learning: true
   learning_period_days: 28  # 4 Wochen Lernzeitraum
@@ -144,6 +148,8 @@ schema:
   max_discharge_power: int(0,20000)
   calibration_interval_days: int(0,365)
   calibration_min_pv_kwh: float(0.0,200.0)
+  publish_ha_sensors: bool
+  ha_entity_prefix: str
   soc_corridor_min: int(5,60)
   soc_corridor_max: int(40,100)
   soc_hard_safety_min: int(5,50)
