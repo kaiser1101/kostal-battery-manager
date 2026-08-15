@@ -190,6 +190,19 @@
                 </div>
             </div>
             <div id="shaping-readback" style="margin-top: 1.25rem; font-size: 0.85rem; opacity: 0.7;"></div>
+            <div style="margin-top: 1.25rem; border-top: 1px solid rgba(128,128,128,0.25); padding-top: 1rem;">
+                <button onclick="runRegisterTest()" class="btn btn-secondary">
+                    🔬 Registertest ausführen
+                </button>
+                <div style="font-size: 0.8rem; opacity: 0.65; margin-top: 0.5rem;">
+                    Prüft, ob der Wechselrichter die Limit-Register annimmt. Schreibt kurzzeitig
+                    minimale Testwerte und stellt die Originalwerte sofort wieder her —
+                    auch im Dry-Run, denn genau das ist die Frage.
+                </div>
+                <pre id="register-test-result" style="display:none; margin-top: 1rem; padding: 0.75rem;
+                     background: rgba(128,128,128,0.12); border-radius: 6px; font-size: 0.8rem;
+                     overflow-x: auto; white-space: pre;"></pre>
+            </div>
         </div>
     </div>
 
@@ -366,6 +379,44 @@ function updateChargingStatus() {
 
 // Update charging status every 5 seconds
 setInterval(updateChargingStatus, 5000);
+
+// v0.10.8 - Schreibtest der Limit-Register
+function runRegisterTest() {
+    if (!confirm('Der Test schreibt kurzzeitig minimale Testwerte auf den Wechselrichter '
+               + 'und stellt die Originalwerte sofort wieder her.\n\n'
+               + 'Das geschieht auch im Dry-Run, weil genau das geprüft werden soll.\n\n'
+               + 'Fortfahren?')) {
+        return;
+    }
+
+    const out = document.getElementById('register-test-result');
+    out.style.display = '';
+    out.textContent = 'Test läuft...';
+
+    fetch(apiUrl('api/register_test'), { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+            if (!d.success) {
+                out.textContent = 'Fehler: ' + (d.error || 'unbekannt');
+                return;
+            }
+            let t = 'Batteriemanagement-Modus: ' + d.battery_management_mode
+                  + ' (Rohwert ' + d.battery_management_mode_raw + ')\n';
+            t += 'Dry-Run war aktiv: ' + (d.dry_run_war_aktiv ? 'ja' : 'nein') + '\n\n';
+            for (const [name, r] of Object.entries(d.results)) {
+                if (r.status === 'uebersprungen') {
+                    t += `  ${name.padEnd(20)} übersprungen (${r.grund})\n`;
+                } else {
+                    const mark = r.status === 'angenommen' ? '✓' : '✗';
+                    t += `  ${mark} ${name.padEnd(18)} ${r.original} → ${r.testwert} `
+                       + `gelesen: ${r.gelesen} → zurück auf ${r.wiederhergestellt}\n`;
+                }
+            }
+            t += '\n' + d.fazit;
+            out.textContent = t;
+        })
+        .catch(e => { out.textContent = 'Fehler: ' + e; });
+}
 
 // v0.10.0 - Zeigt den aktuellen PV-Shaping-Plan (Grenzwerte statt Setpoints)
 function updateShapingCard(data) {

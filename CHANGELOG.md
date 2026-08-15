@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.10.8] - 2026-08-15
+
+### Added
+- **Registertest** (`POST /api/register_test`, Knopf im Dashboard):
+  schreibt je Limit-Register einen minimal veraenderten Testwert, liest
+  zurueck und stellt den Originalwert sofort wieder her. Beantwortet die
+  Frage, ob der Wechselrichter die Register tatsaechlich ANNIMMT -
+  Lesbarkeit allein beweist das nicht.
+  - Schreibt bewusst auch im Dry-Run, da genau das geprueft werden soll
+  - Wird ausschliesslich manuell ausgeloest, mit Rueckfrage
+  - Nennt den aktiven Batteriemanagement-Modus, weil das Verhalten davon
+    abhaengen kann
+- CONFIGURATION.md: Abschnitt zum Batteriemanagement-Modus (Register 1080)
+  und warum die forecast-Strategie fuer Modus 0 entworfen ist
+
 ## [0.10.7] - 2026-08-15
 
 ### Fixed

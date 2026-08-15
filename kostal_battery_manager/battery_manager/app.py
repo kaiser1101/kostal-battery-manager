@@ -762,6 +762,91 @@ def api_config():
     
     return jsonify(config)
 
+@app.route('/api/register_test', methods=['POST'])
+def api_register_test():
+    """
+    Begrenzter Schreibtest der Limit-Register (v0.10.8).
+
+    Beantwortet die Frage, ob der Wechselrichter die Register 1038/1040/
+    1042/1044 tatsaechlich ANNIMMT - Lesbarkeit allein beweist das nicht.
+
+    Ablauf je Register: Ist-Wert lesen, minimal veraenderten Testwert
+    schreiben, zuruecklesen, Originalwert wiederherstellen.
+
+    Schreibt bewusst auch im Dry-Run, weil genau das die Frage ist. Die
+    Aenderungen sind winzig und werden sofort zurueckgenommen; ausgeloest
+    wird der Test ausschliesslich manuell.
+    """
+    if not modbus_client:
+        return jsonify({'success': False, 'error': 'Modbus-Client nicht verfuegbar'}), 500
+
+    before = modbus_client.read_battery_limits()
+    if not before:
+        return jsonify({'success': False,
+                        'error': 'Limit-Register nicht lesbar - Test nicht moeglich'}), 200
+
+    # Testwerte: minimale, ungefaehrliche Abweichung vom Ist-Zustand
+    setters = {
+        'min_soc':             (modbus_client.set_min_soc,             lambda v: min(30.0, v + 2)),
+        'max_soc':             (modbus_client.set_max_soc,             lambda v: max(50.0, v - 2)),
+        'max_charge_power':    (modbus_client.set_max_charge_power,    lambda v: max(100.0, v - 100)),
+        'max_discharge_power': (modbus_client.set_max_discharge_power, lambda v: max(100.0, v - 100)),
+    }
+
+    results = {}
+    was_dry_run = modbus_client.dry_run
+    modbus_client.dry_run = False          # bewusster, begrenzter Eingriff
+    try:
+        for name, (setter, make_test_value) in setters.items():
+            original = before.get(name)
+            if original is None:
+                results[name] = {'status': 'uebersprungen', 'grund': 'nicht lesbar'}
+                continue
+
+            test_value = round(make_test_value(original), 1)
+            if abs(test_value - original) < 0.5:
+                results[name] = {'status': 'uebersprungen',
+                                 'grund': 'kein sinnvoller Testwert moeglich'}
+                continue
+
+            setter(test_value)
+            actual = modbus_client.read_battery_limits().get(name)
+            setter(original)               # sofort zurueck
+            restored = modbus_client.read_battery_limits().get(name)
+
+            accepted = actual is not None and abs(actual - test_value) < 1.0
+            results[name] = {
+                'status': 'angenommen' if accepted else 'ABGELEHNT',
+                'original': original,
+                'testwert': test_value,
+                'gelesen': actual,
+                'wiederhergestellt': restored,
+            }
+    finally:
+        modbus_client.dry_run = was_dry_run
+        modbus_client.last_limits = {}     # Cache leeren, Plan neu schreiben lassen
+
+    raw, mode = modbus_client.read_battery_management_mode()
+    accepted = [k for k, v in results.items() if v.get('status') == 'angenommen']
+    rejected = [k for k, v in results.items() if v.get('status') == 'ABGELEHNT']
+
+    add_log('INFO', f'Registertest im Modus "{mode}": {len(accepted)} angenommen, '
+                    f'{len(rejected)} abgelehnt'
+                    + (f' ({", ".join(rejected)})' if rejected else ''))
+
+    return jsonify({
+        'success': True,
+        'battery_management_mode': mode,
+        'battery_management_mode_raw': raw,
+        'dry_run_war_aktiv': was_dry_run,
+        'results': results,
+        'fazit': ('Alle Limit-Register werden angenommen - die Steuerung funktioniert'
+                  if not rejected and accepted else
+                  f'Abgelehnt: {", ".join(rejected)}' if rejected else
+                  'Kein Register konnte getestet werden'),
+    })
+
+
 @app.route('/api/control', methods=['POST'])
 def api_control():
     """Manual control endpoint"""

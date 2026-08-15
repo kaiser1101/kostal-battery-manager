@@ -219,6 +219,41 @@ Zusätzlich wird bei jeder Planänderung der Ist-Zustand mitgeloggt:
 
 Damit siehst du **vor** dem Scharfschalten, was sich ändern würde. Im Beispiel oben stünde der Wechselrichter auf 10–100 % — die Strategie würde daraus 30–80 % machen.
 
+### Registertest: nimmt der Wechselrichter die Limits an?
+
+Dass die Register **lesbar** sind, beweist noch nicht, dass Schreibzugriffe auch wirken. Im Dashboard gibt es dafür den Knopf **🔬 Registertest ausführen**.
+
+Der Test schreibt je Register einen minimal veränderten Wert (z. B. Max-SOC 100 → 98 %), liest zurück und stellt den Originalwert sofort wieder her. Er schreibt **auch im Dry-Run**, weil genau das die zu klärende Frage ist — die Änderungen sind winzig und bestehen nur Sekundenbruchteile.
+
+```
+Batteriemanagement-Modus: Kein externes Batteriemanagement (Rohwert 0)
+Dry-Run war aktiv: ja
+
+  ✓ min_soc            10.0 → 12.0 gelesen: 12.0 → zurück auf 10.0
+  ✓ max_soc            100.0 → 98.0 gelesen: 98.0 → zurück auf 100.0
+  ✗ max_charge_power   4544.5 → 4444.5 gelesen: 4544.5 → zurück auf 4544.5
+
+Abgelehnt: max_charge_power
+```
+
+`✓ angenommen` heißt: dieses Register wirkt. `✗ ABGELEHNT` heißt: der geschriebene Wert kam nicht an — dieser Hebel funktioniert an deinem Gerät nicht.
+
+Der Test nennt außerdem den aktiven **Batteriemanagement-Modus**. Das ist wichtig, weil sich das Verhalten je nach Modus unterscheiden kann — führe den Test daher nach einem Moduswechsel erneut aus.
+
+### Batteriemanagement-Modus (Register 1080)
+
+| Rohwert | Bedeutung |
+|---|---|
+| 0 | Kein externes Batteriemanagement (intern) |
+| 1 | Extern via digital I/O |
+| 2 | Extern via MODBUS |
+
+Die `forecast`-Strategie ist für **Modus 0** entworfen: der Wechselrichter führt seine eigene Eigenverbrauchs-Optimierung aus, und die Limit-Register geben nur den Rahmen vor.
+
+In Modus 2 erwartet das Gerät stattdessen Leistungs-Setpoints auf Register 1034 — die diese Strategie bewusst nie schreibt, weil sie nachts Netzstrom ziehen würden. Steht dein Wechselrichter auf Modus 2 (z. B. als Überbleibsel der Preisstrategie), stelle ihn im Kostal-Webinterface unter *Service → Batterie* auf interne Steuerung zurück und prüfe anschließend mit dem Registertest, ob die Limits weiterhin angenommen werden.
+
+> Das Umschalten über das Add-on erfordert `installer_password` und `master_password` in der Konfiguration. Ohne diese geht es nur über das Webinterface.
+
 ### Zurückgelesene Werte weichen ab
 
 Erscheint im Log `Register-Rueckmeldung weicht ab`, akzeptiert der Wechselrichter die Limits nicht. Mögliche Ursachen:
