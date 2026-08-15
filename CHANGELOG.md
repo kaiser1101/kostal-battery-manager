@@ -1,5 +1,57 @@
 # Changelog
 
+## [0.10.0] - 2026-08-15
+
+### Fixed
+- **Ladestrategie `forecast` war nie aktiv** - `charging_strategy` und alle Korridor-Parameter
+  standen faelschlich im `schema:`-Block statt in `options:`
+  - `charging_strategy: forecast` wurde von Home Assistant als (ungueltiger) Schema-Typ gelesen
+  - Dadurch erreichte die Option nie `/data/options.json`, und `app.py` fiel auf den
+    Default `'price'` zurueck - die Forecast-Logik lief nie
+  - Parameter jetzt korrekt in `options:` mit passenden Schema-Typen in `schema:`
+
+### Changed
+- Standard-Ladestrategie ist jetzt `forecast` (vorher effektiv `price`)
+
+### Added
+- **PV-Shaping-Planer** (`core/pv_shaping_planner.py`) - prognosebasierte
+  Batteriesteuerung OHNE Netzladung, Ziel ist Batterielebensdauer
+  - Dynamischer SOC-Deckel: weniger Verweilzeit bei hohem SOC
+  - Ladeleistungs-Drosselung: verteilt die Ladung ueber die PV-Stunden,
+    senkt die C-Rate und verschiebt das Erreichen des Ziel-SOC nach hinten
+  - Entladegrenze schuetzt vor Tiefentladung
+  - Periodische Kalibrierladung auf 100% fuer die BMS-SOC-Schaetzung,
+    nur an Tagen mit ausreichender PV-Prognose
+- **Dry-Run-Modus** (`dry_run: true`, Default) - Entscheidungen werden nur
+  geloggt, es wird NICHTS auf den Wechselrichter geschrieben
+- **Limit-Register** (Kostal Modbus-Doku Kap. 3.4): 1038 max. Ladeleistung,
+  1040 max. Entladeleistung, 1042 Minimum SOC, 1044 Maximum SOC
+- **Byte-Order-Pruefung** (Register 5) beim Start - der Wechselrichter kann
+  auf Big-endian (ABCD/SunSpec) stehen, dann waeren alle Float-Werte falsch
+- Periodisches Neuschreiben der Limits (10 min), falls sie einen Reset des
+  Wechselrichters nicht ueberleben
+
+### Fixed
+- **Register 1068 war als "Battery SOC" beschriftet** - laut Kostal-Doku ist
+  es die Batteriekapazitaet in Wh. Betraf `test_connection()` und die README.
+
+- **Nachtsperre**: Ausserhalb der PV-Stunden wird das Ladelimit auf 0 W gesetzt.
+  Ladung koennte dort nur aus dem Netz kommen.
+- **Dashboard-Karte "Batterieschonung"** zeigt den aktuellen Plan, die Begruendung
+  und die aus den Registern zurueckgelesenen Werte. Preisbasierte Karten werden
+  in der `forecast`-Strategie ausgeblendet.
+
+### Removed
+- **`manual_load_profile`** entfernt. Ein handgeschriebenes Lastprofil konkurrierte
+  mit den echten Messwerten des Verbrauchslerners. Zum Beschleunigen der Anlaufphase
+  stattdessen den CSV-/HA-Import nutzen. (Die Option hatte ausserdem keinen
+  Schema-Eintrag und haette die HA-Konfigurationspruefung scheitern lassen.)
+
+### Deprecated
+- `core/forecast_optimizer.py` ("Evening Top-up") nicht mehr verdrahtet: die
+  abendliche Nachladung via Register 1034 zog Energie zwangsweise aus dem
+  Netz. Ersetzt durch den PV-Shaping-Planer.
+
 ## [0.9.6] - 2025-11-05
 
 ### Fixed

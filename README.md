@@ -1,211 +1,150 @@
-# Kostal Battery Manager edited
+# Kostal Battery Manager
 
-Ein professionelles Home Assistant Add-on für die intelligente Batteriesteuerung von Kostal Plenticore Plus Wechselrichtern mit dynamischer Preisoptimierung (Tibber, Awattar, etc.).
+Home Assistant Add-on für die prognosebasierte Batteriesteuerung von Kostal Plenticore Plus Wechselrichtern.
 
-## 🎯 Features
+**Ziel des Add-ons ist die Lebensdauer der Batterie, nicht die maximale Ersparnis.** Es lädt niemals aus dem Netz. Stattdessen gibt es dem Wechselrichter nur Grenzen vor, innerhalb derer dessen eigene Eigenverbrauchs-Optimierung weiterläuft.
 
-- ✅ **Direkte Kostal-Steuerung:** Umgeht den Firmware-Bug beim Timeout der externen Steuerung
-- ✅ **Tibber-Integration:** Automatische Optimierung basierend auf dynamischen Strompreisen
-- ✅ **PV-Forecast:** Integration von Forecast.Solar für intelligente Ladeplanung
-- ✅ **Benutzerfreundliche GUI:** Moderne Web-Oberfläche zur Konfiguration und Steuerung
-- ✅ **Multi-Instanz:** Unterstützt mehrere Wechselrichter parallel
-- ✅ **Open Source:** Community-driven Development
+## 🎯 Funktionsprinzip
+
+Klassische Batteriesteuerungen schreiben einen **Leistungs-Setpoint** (Modbus 1034) und erzwingen damit einen Energiefluss. Abends bedeutet das zwangsläufig: die Energie kommt aus dem Netz.
+
+Dieses Add-on macht das Gegenteil. Es schreibt ausschließlich **Grenzwerte**:
+
+| Register | Bedeutung | Hebel |
+|---|---|---|
+| 1038 | Max. Ladeleistung (W) | Drosselung + Nachtsperre |
+| 1040 | Max. Entladeleistung (W) | Tiefentladeschutz |
+| 1042 | Minimum SOC (%) | Entladegrenze |
+| 1044 | Maximum SOC (%) | Dynamischer SOC-Deckel |
+
+Der Wechselrichter entscheidet weiterhin selbst, wann er lädt — nur eben innerhalb dieses Rahmens. Netzladung ist damit **strukturell ausgeschlossen**, nicht bloß per Bedingung vermieden.
+
+### Die vier Hebel
+
+**1. Dynamischer SOC-Deckel.** Aus PV-Prognose für morgen und gelerntem Verbrauch wird berechnet, wieviel Reserve die Batterie wirklich braucht. Kommt morgen viel Sonne, wird der Deckel gesenkt — die Batterie verbringt weniger Zeit bei hohem SOC, was die kalendarische Alterung reduziert.
+
+> ⚠️ Dieser Hebel greift nur, wenn die Batterie **groß relativ zum Nachtverbrauch** ist. Bei 10,6 kWh Kapazität und ~17 kWh Tagesverbrauch übersteigt allein der Nachtbedarf (~9 kWh) den verfügbaren Korridor — der Deckel bleibt dann dauerhaft bei `soc_corridor_max`. Prüfe deinen realen Verbrauch, bevor du dir davon etwas versprichst.
+
+**2. Ladeleistungs-Drosselung.** Die noch fehlende Energie wird über die verbleibenden PV-Stunden verteilt, statt vormittags mit voller Leistung durchzuladen. Das senkt die C-Rate und verschiebt das Erreichen des Ziel-SOC nach hinten. Die Rechnung läuft in jedem Regelzyklus neu — ziehen Wolken auf, steigt die Leistung automatisch wieder.
+
+**3. Nachtsperre.** Außerhalb der PV-Stunden wird das Ladelimit auf 0 W gesetzt. Ladung könnte dort nur aus dem Netz kommen.
+
+**4. Kalibrierladung.** LFP-Zellen brauchen periodisch eine Vollladung, damit das BMS seine SOC-Schätzung nicht wegdriften lässt. Alle `calibration_interval_days` wird an einem Tag mit ausreichender PV-Prognose auf 100 % freigegeben — so kostet es keinen Netzstrom.
+
+### Sicherheit
+
+Fällt der SOC unter `soc_hard_safety_min`, wird das **Entladen gesperrt** (Register 1040 = 0). Ohne Netzladung ist das die einzig sinnvolle Reaktion: die Batterie wartet auf PV, statt weiter leergezogen zu werden.
 
 ## 📋 Voraussetzungen
 
-- Home Assistant OS (empfohlen) oder Home Assistant Supervised
-- Kostal Plenticore Plus Wechselrichter mit Firmware 01.30.x oder neuer
-- Pylontech Batterie (Force H2 oder kompatibel)
-- Installer-Passwort und Master-Passwort für den Wechselrichter
-- (Optional) Tibber Integration in Home Assistant
-- (Optional) Forecast.Solar Integration in Home Assistant
+- Home Assistant OS oder Supervised
+- Kostal Plenticore Plus, Firmware 01.30.x oder neuer
+- Modbus TCP am Wechselrichter aktiviert
+- PV-Prognose: Forecast.Solar (Sensoren oder Professional API)
+- Verbrauchssensor für das Verbrauchslernen
 
 ## 🚀 Installation
 
-### Methode 1: Über eigenes Repository (empfohlen für Testing)
+1. Repository in Home Assistant hinzufügen:
+   Einstellungen → Add-ons → Add-on Store → ⋮ → Repositories →
+   `https://github.com/kaiser1101/kostal-battery-manager`
+2. „Kostal Battery Manager" installieren
+3. Konfigurieren (siehe unten), speichern, starten
 
-1. **Repository in Home Assistant hinzufügen:**
-   - Einstellungen → Add-ons → Add-on Store → ⋮ (oben rechts) → Repositories
-   - Fügen Sie hinzu: `https://github.com/IHR_USERNAME/kostal-battery-manager`
+## ⚙️ Inbetriebnahme
 
-2. **Add-on installieren:**
-   - Suchen Sie nach "Kostal Battery Manager"
-   - Klicken Sie auf "Installieren"
+### Schritt 1: Im Dry-Run starten
 
-3. **Konfigurieren:**
-   - Öffnen Sie die Add-on Konfiguration
-   - Tragen Sie Ihre Wechselrichter-Daten ein
-   - Speichern und starten Sie das Add-on
-
-### Methode 2: Lokale Installation (für Entwicklung)
-
-1. **Dateien kopieren:**
-   ```bash
-   cd /addons
-   git clone https://github.com/IHR_USERNAME/kostal-battery-manager.git
-   ```
-
-2. **In Home Assistant:**
-   - Einstellungen → Add-ons → Add-on Store → ⋮ → "Lokale Add-ons überprüfen"
-   - "Kostal Battery Manager" sollte nun erscheinen
-
-## ⚙️ Konfiguration
-
-### Pflichtfelder:
+`dry_run: true` ist der **Standard und sollte es zunächst bleiben.** In diesem Modus wird nichts auf den Wechselrichter geschrieben — jede Entscheidung landet nur im Log und im Dashboard.
 
 ```yaml
-inverter_ip: "192.168.80.76"              # IP-Adresse des Wechselrichters
-inverter_port: 1502                       # Modbus Port (Standard: 1502)
-installer_password: "ihr_passwort"        # Installer-Passwort
-master_password: "ihr_master_passwort"    # Master-Passwort
-max_charge_power: 3900                    # Max. Ladeleistung in Watt
-battery_capacity: 10.6                    # Batteriekapazität in kWh
+charging_strategy: "forecast"
+dry_run: true
+battery_capacity: 10.6
+max_charge_power: 3900
 ```
 
-### Optionale Felder:
+Lass das eine Woche laufen. Im Dashboard zeigt die Karte **🛡️ Batterieschonung** mit `DRY-RUN`-Badge, welche Grenzen gesetzt *würden*, samt Begründung und den Zwischenwerten (Nachtbedarf, Fehlbetrag morgen).
 
-```yaml
-min_soc: 20                               # Minimum SOC (%)
-max_soc: 95                               # Maximum SOC (%)
-log_level: "info"                         # Log Level (debug|info|warning|error)
-control_interval: 30                      # Steuerungs-Intervall in Sekunden
-enable_tibber_optimization: true          # Tibber-Optimierung aktivieren
-price_threshold: 0.85                     # Preisschwelle (85% des Durchschnitts)
-battery_soc_sensor: "sensor.zwh8_8500_battery_soc"  # HA Batterie SOC Sensor
-forecast_sensor_1: "sensor.energy_production_today"  # PV Forecast Sensor 1
-forecast_sensor_2: "sensor.energy_production_today_2"  # PV Forecast Sensor 2
+### Schritt 2: Prüfen
+
+Im Log solltest du beim Start sehen:
+
+```
+Byte Order: Little-endian (CDAB) - Default, passt zur Implementierung
+Battery management mode: ... (Register 1080 = ...)
+Modbus test successful, Battery work capacity: ... Wh
 ```
 
-## 🎮 Verwendung
+Steht dort stattdessen **Big-endian (ABCD/SunSpec)**, hat das Add-on die Wortreihenfolge automatisch umgestellt — ohne diese Prüfung wären alle Float-Register unbrauchbar.
 
-### Web-GUI
+Vergleiche die geplanten Grenzen mit dem, was deine Anlage tatsächlich getan hat. Passt der Nachtbedarf? Ist der SOC-Deckel realistisch?
 
-Nach der Installation ist das Add-on über das Home Assistant Menü erreichbar:
-- **Dashboard:** Zeigt aktuellen Status, Batterie-SOC, Preise
-- **Konfiguration:** Alle Einstellungen anpassen
-- **Logs:** Live-Logs zur Fehlersuche
+### Schritt 3: Scharfschalten
 
-### Manuelle Steuerung
+Erst wenn die Logs plausibel aussehen: `dry_run: false`. Danach zeigt das Dashboard zusätzlich die aus den Registern **zurückgelesenen** Werte — weicht dort etwas ab, akzeptiert der Wechselrichter die Limits nicht, und es erscheint eine Warnung im Log.
 
-Im Dashboard können Sie:
-- ⏯️ **Laden starten:** Batterie mit eingestellter Leistung laden
-- ⏹️ **Laden stoppen:** Zurück zur internen Steuerung
-- 🔄 **Automatik:** Tibber-basierte Optimierung aktivieren
+## 🔧 Wichtige Parameter
 
-### Automatik-Modus
+| Parameter | Standard | Bedeutung |
+|---|---|---|
+| `charging_strategy` | `forecast` | `forecast` = PV-Shaping, `price` = alte Tibber-Logik |
+| `dry_run` | `true` | Keine Schreibzugriffe, nur Logging |
+| `soc_corridor_min` | 30 | Weiche Entladegrenze (%) |
+| `soc_corridor_max` | 80 | Obergrenze, kein routinemäßiges Vollladen (%) |
+| `soc_hard_safety_min` | 15 | Notbremse: darunter Entladen gesperrt (%) |
+| `enable_charge_throttling` | `true` | Ladung über die PV-Stunden verteilen |
+| `min_charge_power` | 500 | Untergrenze der gedrosselten Leistung (W) |
+| `calibration_interval_days` | 28 | Abstand der Kalibrierladungen, 0 = aus |
+| `calibration_min_pv_kwh` | 15.0 | Kalibrierung nur an Tagen mit dieser PV-Prognose |
+| `pv_forecast_safety_margin` | 0.8 | Anteil der PV-Prognose, dem vertraut wird |
 
-Im Automatik-Modus:
-1. Liest das Add-on die aktuellen Tibber-Preise
-2. Vergleicht mit Durchschnittspreis und Schwelle
-3. Prüft PV-Forecast für heute
-4. Entscheidet automatisch wann geladen wird
-5. Optimiert Ladeleistung basierend auf SOC
+### Verbrauchslernen
 
-## 🔧 Troubleshooting
+Das Add-on lernt das stündliche Verbrauchsprofil aus `home_consumption_sensor` über `learning_period_days` (Standard 28 Tage). **Ein manuelles Lastprofil gibt es seit v0.10.0 nicht mehr** — es hätte gegen die echten Messwerte konkurriert. Bis genug Daten vorliegen, greift `default_hourly_consumption_fallback` bzw. `average_daily_consumption / 24`.
 
-### Problem: Add-on startet nicht
+Historische Daten lassen sich über die Seite „Verbrauchsimport" per CSV oder direkt aus Home Assistant einspielen. Das verkürzt die Anlaufphase erheblich.
 
-**Lösung:**
-- Prüfen Sie die Logs: Add-on → Log Tab
-- Verifizieren Sie die Konfiguration
-- Stellen Sie sicher, dass alle Passwörter korrekt sind
+## 📊 Dashboard
 
-### Problem: Keine Verbindung zum Wechselrichter
+- **🛡️ Batterieschonung** — der aktuelle Plan: SOC-Korridor, Lade-/Entladegrenzen, Begründung, Nachtbedarf, Fehlbetrag morgen. Im Scharfbetrieb zusätzlich die zurückgelesenen Registerwerte.
+- **🔋 Batterie** — SOC und aktueller Fluss
+- **☀️ PV Prognose** — heute und morgen
+- **📊 Verbrauchslernen** — Fortschritt und Datenbasis
 
-**Lösung:**
-- Prüfen Sie IP-Adresse und Port
-- Testen Sie: `ping 192.168.80.76`
-- Prüfen Sie ob Modbus TCP am Wechselrichter aktiviert ist
-- Firewall-Regeln prüfen
-
-### Problem: Externe Steuerung funktioniert nicht
-
-**Lösung:**
-- Prüfen Sie ob "Battery:ExternControl" im Wechselrichter aktiviert ist
-- Kostal Webinterface: Service → Battery → ExternControl = "External via protocol (Modbus TCP)"
-- Timeout auf 60 Sekunden setzen
-
-### Problem: Batterieladung startet nicht
-
-**Lösung:**
-- Prüfen Sie Battery SOC (muss < max_soc sein)
-- Prüfen Sie ob genug PV-Leistung verfügbar ist
-- Schauen Sie in die Logs für Fehlermeldungen
-- Testen Sie die Verbindung im Dashboard
-
-## 📊 Home Assistant Integration
-
-Das Add-on kann mit folgenden Home Assistant Integrationen zusammenarbeiten:
-
-- **Tibber:** Dynamische Strompreise
-- **Forecast.Solar:** PV-Ertragsprognose
-- **Kostal Plenticore:** Sensoren für Battery SOC, Power, etc.
+In der `forecast`-Strategie werden die preisbasierten Karten ausgeblendet, da Strompreise dort keine Rolle spielen.
 
 ## 🛡️ Sicherheitshinweise
 
-⚠️ **WICHTIG:**
+- Das Add-on greift direkt auf den Wechselrichter zu. Falsche Werte können die Batterie schädigen.
+- **Beginne immer im Dry-Run.**
+- Beachte die Garantiebedingungen deines Batterieherstellers, insbesondere zu Entladetiefe und Zyklenzahl.
+- Der Modbus-Port sollte nicht aus dem Internet erreichbar sein (kein Port-Forwarding).
 
-- Dieses Add-on greift direkt auf Ihren Wechselrichter zu
-- Falsche Einstellungen können die Batterie beschädigen
-- Verwenden Sie nur getestete Werte
-- Beachten Sie die Garantiebedingungen Ihres Herstellers
-- Erstellen Sie regelmäßige Backups Ihrer Home Assistant Konfiguration
+## 📖 Technische Referenz
 
-## 📖 Dokumentation
+Registerangaben nach *KOSTAL Interface MODBUS-TCP / SunSpec with Control*, Kap. 3.4 „External battery management":
 
-### Kostal API
+- **1038 / 1040** — max. Lade- bzw. Entladeleistung, W, Float32, RW
+- **1042 / 1044** — Minimum / Maximum SOC, %, Float32, RW
+- **1068** — Batteriekapazität in Wh, RO *(in früheren Versionen fälschlich als SOC beschriftet)*
+- **1080** — Batteriemanagement-Modus, U8, RO: 0 = keins, 1 = digital I/O, 2 = Modbus
+- **1034** — Ladesetpoint, W, Float32, RW. Negativ = laden, positiv = entladen. **Wird von der `forecast`-Strategie nicht verwendet**, da ein Setpoint bei Nacht Netzstrom zieht.
+- **5** — eingestellte Byte Order: 0 = Little-endian (CDAB, Default), 1 = Big-endian (ABCD, SunSpec)
 
-Das Add-on nutzt die undokumentierte REST API von Kostal:
-- Authentifizierung via PBKDF2 + AES
-- Session-Management
-- Setting "Battery:ExternControl" auf 0 (intern) oder 2 (extern)
+TCP-Port 1502, Unit-ID 71 (beide am Gerät änderbar).
 
-### Modbus Register
-
-- **Register 1034:** Battery charge power setpoint (Float32)
-  - Negativ = Laden (z.B. -3900 = 3900W laden)
-  - Positiv = Entladen (z.B. 2000 = 2000W entladen)
-  - 0 = Automatischer Modus
-
-- **Register 1066:** Battery Power (Float32, read-only)
-- **Register 1068:** Battery SOC (Float32, read-only)
-
-## 🤝 Beitragen
-
-Beiträge sind willkommen! 
-
-1. Fork das Repository
-2. Erstelle einen Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit deine Änderungen (`git commit -m 'Add some AmazingFeature'`)
-4. Push zum Branch (`git push origin feature/AmazingFeature`)
-5. Öffne einen Pull Request
+> Hinweis der Kostal-Doku: Die Setpoint-Register 1028/1032/1034/1036 unterliegen in Dänemark und Österreich normativen Gradientenbeschränkungen. Die hier genutzten Limit-Register sind davon nicht betroffen.
 
 ## 📝 Changelog
 
-### Version 0.1.0 (TBD)
-
-- ✨ Erste öffentliche Version
-- ✅ Basis-Funktionalität für Kostal-Steuerung
-- ✅ Tibber-Integration
-- ✅ Web-GUI
-- ✅ Logging und Monitoring
+Siehe [CHANGELOG.md](CHANGELOG.md). Wesentliche Änderung in v0.10.0: prognosebasiertes PV-Shaping ersetzt die netzladende „Evening Top-up"-Logik.
 
 ## 📄 Lizenz
 
-Dieses Projekt ist unter der MIT Lizenz lizenziert - siehe [LICENSE](LICENSE) Datei für Details.
+MIT — siehe [LICENSE](LICENSE).
 
 ## 🙏 Credits
 
-- **Kilian Knoll:** Für die ursprüngliche batctl.py Implementierung der Kostal REST API
-- **Home Assistant Community:** Für die hervorragende Plattform
-- **Kostal Solar Electric:** Für den Wechselrichter
-
-## 📧 Support
-
-Bei Fragen oder Problemen:
-- GitHub Issues: [Issues](https://github.com/IHR_USERNAME/kostal-battery-manager/issues)
-- Home Assistant Community: [Forum Thread](LINK)
-
----
-
-**Made with ❤️ for Home Assistant **
+- **Kilian Knoll** — ursprüngliche `batctl.py`-Implementierung der Kostal REST API
+- **Home Assistant Community**

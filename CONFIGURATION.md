@@ -1,131 +1,171 @@
 # Konfigurations-Anleitung
 
-## Wichtige Parameter erklärt
+Diese Anleitung beschreibt die Strategie `charging_strategy: forecast` (Standard seit v0.10.0).
+Für die alte preisbasierte Logik siehe den Abschnitt [Legacy: Preisstrategie](#legacy-preisstrategie).
 
-### Battery SOC Sensor
+## Grundeinstellungen
 
-**Parameter:** `battery_soc_sensor`
-**Beispiel:** `sensor.zwh8_8500_battery_soc`
+### `dry_run` (Standard: `true`)
 
-**Wichtig:** Dieser Sensor muss korrekt konfiguriert sein! Das Addon liest daraus den aktuellen Batterie-Ladestand (SOC).
+Im Dry-Run wird **nichts** auf den Wechselrichter geschrieben. Alle Entscheidungen erscheinen nur im Log und im Dashboard.
 
-**Wo finde ich meinen Sensor?**
-1. Home Assistant → Entwicklerwerkzeuge → Zustände
-2. Suche nach "battery" oder "soc"
-3. Finde deinen Batterie-SOC-Sensor (sollte Werte zwischen 0-100% liefern)
+**Lass das beim ersten Start unbedingt an.** Erst wenn die geplanten Grenzwerte über mehrere Tage plausibel aussehen, auf `false` stellen.
 
-### Auto-Optimierungs-Parameter
+### `battery_soc_sensor`
 
-#### `auto_safety_soc` (Standard: 20%)
-**Bedeutung:** Sicherheits-Minimum SOC
-**Funktion:** Lädt **SOFORT** wenn der SOC unter diesen Wert fällt, unabhängig von Preisen oder Zeiten.
+Der Batterie-SOC-Sensor aus Home Assistant, z. B. `sensor.zwh8_8500_battery_soc`.
 
-**Beispiel:**
-- Einstellung: `auto_safety_soc: 10`
-- Wenn SOC auf 9% fällt → Sofortige Ladung startet!
+Zu finden unter: Entwicklerwerkzeuge → Zustände → nach „battery" oder „soc" suchen. Der Wert muss zwischen 0 und 100 liegen.
 
-#### `auto_charge_below_soc` (Standard: 95%)
-**Bedeutung:** Ziel-SOC für geplante Ladung
-**Funktion:** Die intelligente Ladesteuerung lädt **BIS ZU** diesem SOC-Wert.
+### `battery_capacity`
 
-**ACHTUNG:** Der Name ist verwirrend! Es bedeutet **NICHT** "lade nur wenn unter X%", sondern **"lade BIS X%"**.
+Nutzbare Kapazität in kWh. Wird für alle Energieberechnungen verwendet — ein falscher Wert verzerrt Nachtbedarf und SOC-Deckel direkt.
 
-**Beispiel:**
-- Einstellung: `auto_charge_below_soc: 95`
-- Geplante Ladung: Lädt bis 95% erreicht sind
-- Wenn SOC bereits bei 96% → Keine Ladung
+Der Wechselrichter meldet die Kapazität selbst in Register 1068; beim Verbindungstest steht sie im Log und lässt sich damit gegenprüfen.
 
-#### `auto_pv_threshold` (Standard: 5.0 kWh)
-**Bedeutung:** PV-Schwelle
-**Funktion:** Lädt nur aus dem Netz wenn weniger als X kWh PV-Produktion erwartet wird.
+## Der SOC-Korridor
 
-**Beispiel:**
-- Einstellung: `auto_pv_threshold: 5.0`
-- Erwartete PV heute: 12 kWh → Keine Netzladung (PV reicht)
-- Erwartete PV heute: 3 kWh → Netzladung möglich (PV zu wenig)
-
-### Tibber Smart Charging Parameter
-
-#### `tibber_price_threshold_1h` (Standard: 8%)
-**Bedeutung:** Preisanstieg zur vorherigen Stunde
-**Funktion:** Erkennt Preisanstieg wenn aktueller Preis > Preis vor 1h * (1 + Schwelle)
-
-**Beispiel:**
-- Einstellung: `tibber_price_threshold_1h: 8`
-- Preis vor 1h: 20 Cent/kWh
-- Aktueller Preis: 22 Cent/kWh
-- Anstieg: 10% → Trigger! (> 8%)
-
-#### `tibber_price_threshold_3h` (Standard: 8%)
-**Bedeutung:** 3-Stunden-Block Vergleich
-**Funktion:** Vergleicht Summe der letzten 3h mit Summe der nächsten 3h
-
-**Beispiel:**
-- Einstellung: `tibber_price_threshold_3h: 8`
-- Letzte 3h Summe: 60 Cent
-- Nächste 3h Summe: 72 Cent
-- Anstieg: 20% → Trigger! (> 8%)
-
-#### `charge_duration_per_10_percent` (Standard: 18 Minuten)
-**Bedeutung:** Ladedauer pro 10% SOC
-**Funktion:** Zur Berechnung des Ladebeginns
-
-**Beispiel:**
-- Einstellung: `charge_duration_per_10_percent: 18`
-- Benötigte Ladung: 50% (von 40% auf 90%)
-- Benötigte Zeit: 5 × 18 = 90 Minuten
-
-**Wie ermitteln?**
-1. Starte Ladung bei bekanntem SOC
-2. Stoppe nach 10% Zunahme
-3. Miss die Dauer
-4. Konfiguriere den Wert
-
-## Zusammenfassung der Ladelogik
-
-### Sofort-Ladung (Sicherheit)
 ```
-Wenn: SOC < auto_safety_soc
-Dann: Lade sofort (unabhängig von Preis/Zeit)
+100% ┌─────────────────────────┐
+     │                         │
+     │  soc_corridor_max (80)  │  ← Obergrenze für normales Laden
+     │  ░░░░░░░░░░░░░░░░░░░░░  │
+     │  ░ Arbeitsbereich ░░░░  │
+     │  ░░░░░░░░░░░░░░░░░░░░░  │
+     │  soc_corridor_min (30)  │  ← Entladen stoppt hier
+     │                         │
+     │  soc_hard_safety_min(15)│  ← Notbremse: Entladen komplett gesperrt
+  0% └─────────────────────────┘
 ```
 
-### Geplante Ladung (Tibber-optimiert)
+### `soc_corridor_min` (Standard: 30 %)
+
+Untergrenze für das Entladen (Register 1042). Schützt vor tiefen Zyklen.
+
+Höhere Werte schonen die Batterie, verkleinern aber den nutzbaren Bereich.
+
+### `soc_corridor_max` (Standard: 80 %)
+
+Obergrenze für das Laden (Register 1044). Verhindert routinemäßiges Vollladen.
+
+Der tatsächliche Deckel wird **dynamisch** berechnet und liegt oft darunter — nämlich dann, wenn die morgige PV-Prognose gut ist und die Batterie weniger Reserve braucht.
+
+> **Wichtige Einschränkung:** Der dynamische Deckel greift nur, wenn deine Batterie groß genug relativ zum Nachtverbrauch ist. Rechenbeispiel: 10,6 kWh Kapazität, 0,7 kWh/h Verbrauch, 13 Stunden Nacht → 9,1 kWh Nachtbedarf. Das sind 86 % der Kapazität. Zusammen mit `soc_corridor_min` von 30 % ergibt sich rechnerisch ein Ziel über 100 %, also bleibt der Deckel dauerhaft bei 80 %.
+>
+> Prüfe daher deinen tatsächlichen Tagesverbrauch. Liegt er deutlich niedriger, lohnt es sich, `soc_corridor_max` zu senken, damit der Hebel überhaupt Spielraum hat.
+
+### `soc_hard_safety_min` (Standard: 15 %)
+
+Notbremse. Darunter wird das **Entladen gesperrt** (Register 1040 = 0 W).
+
+Da nie aus dem Netz geladen wird, ist das die einzig sinnvolle Reaktion auf einen kritisch tiefen SOC: die Batterie wartet auf PV, statt weiter leergezogen zu werden.
+
+## Ladeleistungs-Drosselung
+
+### `enable_charge_throttling` (Standard: `true`)
+
+Verteilt die noch fehlende Energie über die verbleibenden PV-Stunden, statt vormittags mit voller Leistung zu laden.
+
+**Beispiel:** 3,7 kWh fehlen, 10 Stunden bis Sonnenuntergang → 370 W statt 3900 W.
+
+Zwei Effekte: niedrigere C-Rate, und der Ziel-SOC wird erst gegen Abend erreicht statt am Vormittag. Letzteres ist der wirksamste Hebel gegen langes Verweilen bei hohem SOC.
+
+Die Rechnung läuft in **jedem** Regelzyklus neu. Ziehen Wolken auf und der SOC bleibt zurück, steigt die erlaubte Leistung automatisch — das System korrigiert sich selbst.
+
+### `min_charge_power` (Standard: 500 W)
+
+Untergrenze der gedrosselten Leistung. Verhindert, dass bei winzigem Restbedarf unrealistisch kleine Werte gesetzt werden.
+
+### Nachtsperre (automatisch)
+
+Außerhalb der PV-Stunden wird das Ladelimit auf **0 W** gesetzt. Ladung könnte dort nur aus dem Netz kommen. Das ist nicht konfigurierbar und folgt direkt aus dem Grundsatz „keine Netzladung".
+
+## Kalibrierladung
+
+### `calibration_interval_days` (Standard: 28, `0` = aus)
+
+LFP-Zellen brauchen periodisch eine Vollladung, damit das BMS seine SOC-Schätzung neu kalibrieren kann. Ohne das driftet die Anzeige mit der Zeit weg — und da alle Berechnungen auf dem SOC beruhen, würde die ganze Steuerung ungenau.
+
+### `calibration_min_pv_kwh` (Standard: 15.0)
+
+Die Kalibrierung wird nur an Tagen ausgelöst, an denen mindestens so viel PV prognostiziert ist. So kostet die Vollladung keinen Netzstrom.
+
+Ist die Kalibrierung fällig, aber die Prognose zu schwach, wartet das Add-on auf einen besseren Tag.
+
+Bei Erstinstallation wird das Intervall **ab dem Installationstag** gerechnet — die erste Kalibrierung erfolgt also nach `calibration_interval_days`, nicht sofort.
+
+## PV-Prognose
+
+### `pv_forecast_safety_margin` (Standard: 0.8)
+
+Anteil der PV-Prognose, dem vertraut wird. Bei 0.8 wird mit 80 % des prognostizierten Ertrags gerechnet.
+
+Niedriger = konservativer = mehr Reserve = höherer SOC-Deckel.
+
+### `pv_dropoff_threshold` (Standard: 0.05)
+
+Ab welchem Bruchteil des Tagesmaximums eine Stunde noch als „PV-Stunde" gilt. Bestimmt die erkannten Sonnenauf- und -untergangszeiten.
+
+### Forecast.Solar
+
+Entweder über HA-Sensoren (`pv_production_today_roof1/2` mit `wh_hours`-Attribut) oder über die Professional API:
+
+```yaml
+enable_forecast_solar_api: true
+forecast_solar_api_key: "dein_key"
+forecast_solar_latitude: 48.2
+forecast_solar_longitude: 16.4
+forecast_solar_roof1_declination: 30    # Dachneigung 0-90°
+forecast_solar_roof1_azimuth: 0         # 0=Süd, 90=West, -90=Ost
+forecast_solar_roof1_kwp: 5.5
 ```
-1. Analysiere Tibber-Preise (heute + morgen)
-2. Finde optimalen Ladeend-Zeitpunkt (wenn Preis steigt)
-3. Berechne Ladebeginn rückwärts (basierend auf SOC-Differenz)
-4. Lade von [Ladebeginn] bis [Ladeende] oder SOC >= auto_charge_below_soc
-```
 
-### Beispiel-Szenario
-```
-Aktueller SOC: 45%
-auto_charge_below_soc: 90%
-auto_safety_soc: 20%
-charge_duration_per_10_percent: 18 min
+Die API liefert stündliche Werte und damit deutlich brauchbarere Prognosen als reine Tagessummen.
 
-Optimaler Ladeend-Zeitpunkt: 04:00 Uhr (Preis steigt dann)
-Benötigte Ladung: 90% - 45% = 45%
-Benötigte Zeit: 4.5 × 18 = 81 Minuten
-Ladebeginn: 04:00 - 81min = 02:39 Uhr
+## Verbrauchslernen
 
-→ Lädt von 02:39 bis 04:00 (oder bis 90% erreicht)
-```
+### `home_consumption_sensor`
 
-## Häufige Fehler
+Der Hausverbrauchssensor. Einheiten W, kW und kWh werden automatisch erkannt.
 
-### "SOC wird nicht aktualisiert"
-**Problem:** `battery_soc_sensor` ist falsch konfiguriert
-**Lösung:** Prüfe den Sensor-Namen in Home Assistant
+### `learning_period_days` (Standard: 28)
 
-### "Lädt nicht zur geplanten Zeit"
-**Mögliche Ursachen:**
-1. SOC bereits >= `auto_charge_below_soc`
-2. Genug PV erwartet (> `auto_pv_threshold`)
-3. Geplante Zeit noch nicht erreicht
+Lernzeitraum in Tagen. Vier Wochen fangen Wochentagsmuster gut ein.
 
-**Lösung:** Prüfe die Logs für genaue Gründe
+### `default_hourly_consumption_fallback`
 
-### "Lädt sofort, obwohl Preis hoch"
-**Ursache:** SOC < `auto_safety_soc`
-**Lösung:** Das ist gewolltes Verhalten (Sicherheitsfunktion)
+Fallback, solange für eine Stunde noch keine Daten vorliegen. Alternativ `average_daily_consumption` angeben — das wird durch 24 geteilt.
+
+> **Seit v0.10.0 gibt es kein `manual_load_profile` mehr.** Ein handgeschriebenes Profil hätte gegen die echten Messwerte konkurriert. Zum Beschleunigen der Anlaufphase stattdessen die Seite „Verbrauchsimport" nutzen: CSV-Upload oder Direktimport der Historie aus Home Assistant.
+
+## Fehlersuche
+
+### „Warte auf ersten Plan"
+
+Der Plan wird im `control_interval` (Standard 30 s) berechnet. Erscheint dauerhaft nichts, prüfe:
+- Ist `auto_optimization_enabled: true`?
+- Läuft die Automatik (Toggle im Dashboard)?
+- Liefert `battery_soc_sensor` einen Wert?
+
+### SOC-Deckel bleibt immer bei `soc_corridor_max`
+
+Siehe die Einschränkung oben — dein Nachtbedarf übersteigt vermutlich den nutzbaren Korridor. Prüfe im Dashboard den Wert „Nachtbedarf" gegen deine Kapazität.
+
+### Zurückgelesene Werte weichen ab
+
+Erscheint im Log `Register-Rueckmeldung weicht ab`, akzeptiert der Wechselrichter die Limits nicht. Mögliche Ursachen:
+- Falsche Byte Order (das Add-on prüft Register 5 beim Start — siehe Log)
+- Firmware zu alt
+- Batteriemanagement-Modus passt nicht (Register 1080 im Log)
+
+### Ladeleistung wirkt zu niedrig
+
+Das ist meist Absicht: die Drosselung verteilt die Ladung über den Tag. Die Begründung im Dashboard nennt die Rechnung, z. B. „3.7 kWh auf 10h bis Sonnenuntergang verteilt".
+
+---
+
+## Legacy: Preisstrategie
+
+Mit `charging_strategy: price` läuft die alte, Tibber-basierte Logik mit `auto_safety_soc`, `auto_charge_below_soc`, `auto_pv_threshold` und den `tibber_price_threshold_*`-Parametern.
+
+⚠️ **Diese Strategie lädt aus dem Netz.** Sie schreibt Setpoints auf Register 1034 und ist mit dem Ziel „keine Netzladung" unvereinbar. Sie bleibt nur aus Kompatibilitätsgründen erhalten.

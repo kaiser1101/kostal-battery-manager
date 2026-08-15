@@ -50,12 +50,16 @@
         </div>
         <div class="battery-details">
             <div>Kapazität: {{ config.battery_capacity }} kWh</div>
+            {% if config.charging_strategy == 'forecast' %}
+            <div>Korridor: {{ config.soc_corridor_min }}–{{ config.soc_corridor_max }}% | Notbremse: {{ config.soc_hard_safety_min }}%</div>
+            {% else %}
             <div>Sicherheits-SOC: {{ config.auto_safety_soc }}% | Lade-Limit: {{ config.auto_charge_below_soc }}%</div>
+            {% endif %}
         </div>
     </div>
 
     <!-- Price Information -->
-    <div class="card price-card">
+    <div class="card price-card" data-price-only="1">
         <h2>💰 Strompreis</h2>
         <div class="price-display">
             <div class="current-price">
@@ -120,7 +124,7 @@
     </div>
 
     <!-- Charging Plan (v0.3.0) -->
-    <div class="card forecast-card">
+    <div class="card forecast-card" data-price-only="1">
         <h2>📅 Geplante Ladung</h2>
         <div class="forecast-display" id="charging-plan-display">
             <div class="forecast-item">
@@ -144,7 +148,7 @@
     </div>
 
     <!-- Charging Status Explanation (v0.3.6) -->
-    <div class="card forecast-card">
+    <div class="card forecast-card" data-price-only="1">
         <h2>ℹ️ Ladestatus</h2>
         <div style="padding: 1rem 0;">
             <div id="charging-explanation" style="font-size: 1.1rem; line-height: 1.6; margin-bottom: 1.5rem;">
@@ -153,6 +157,39 @@
             <div id="charging-conditions" style="display: flex; flex-direction: column; gap: 0.5rem;">
                 <!-- Conditions will be dynamically inserted here -->
             </div>
+        </div>
+    </div>
+
+    <!-- PV-Shaping Plan (v0.10.0) -->
+    <div class="card forecast-card" id="shaping-card" style="display: none; grid-column: 1 / -1 !important;">
+        <h2>🛡️ Batterieschonung <span id="shaping-dryrun-badge" class="badge" style="display:none; background:#b45309;">DRY-RUN</span></h2>
+        <div style="padding: 0.5rem 0;">
+            <div id="shaping-reason" style="font-size: 1.05rem; line-height: 1.6; margin-bottom: 1.25rem;">
+                Warte auf ersten Plan...
+            </div>
+            <div style="display: flex; flex-wrap: wrap; gap: 1.5rem;">
+                <div>
+                    <div style="font-size: 0.8rem; opacity: 0.65;">SOC-Korridor</div>
+                    <div id="shaping-corridor" style="font-size: 1.4rem; font-weight: bold;">--</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.8rem; opacity: 0.65;">Max. Ladeleistung</div>
+                    <div id="shaping-charge" style="font-size: 1.4rem; font-weight: bold;">--</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.8rem; opacity: 0.65;">Max. Entladeleistung</div>
+                    <div id="shaping-discharge" style="font-size: 1.4rem; font-weight: bold;">--</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.8rem; opacity: 0.65;">Nachtbedarf</div>
+                    <div id="shaping-overnight" style="font-size: 1.4rem; font-weight: bold;">--</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.8rem; opacity: 0.65;">Fehlbetrag morgen</div>
+                    <div id="shaping-shortfall" style="font-size: 1.4rem; font-weight: bold;">--</div>
+                </div>
+            </div>
+            <div id="shaping-readback" style="margin-top: 1.25rem; font-size: 0.85rem; opacity: 0.7;"></div>
         </div>
     </div>
 
@@ -186,7 +223,7 @@
     </div>
 
     <!-- Tibber Price Chart (v0.6.3) -->
-    <div class="card chart-card" style="grid-column: 1 / -1 !important;">
+    <div class="card chart-card" data-price-only="1" style="grid-column: 1 / -1 !important;">
         <h2>💰 Tibber Preisverlauf Heute</h2>
         <div style="position: relative; height: 300px; padding: 1rem;">
             <canvas id="priceChart"></canvas>
@@ -330,6 +367,70 @@ function updateChargingStatus() {
 // Update charging status every 5 seconds
 setInterval(updateChargingStatus, 5000);
 
+// v0.10.0 - Zeigt den aktuellen PV-Shaping-Plan (Grenzwerte statt Setpoints)
+function updateShapingCard(data) {
+    const card = document.getElementById('shaping-card');
+    if (!card) return;
+
+    // Karte nur in der Prognose-Strategie zeigen
+    if (data.charging_strategy !== 'forecast') {
+        card.style.display = 'none';
+        document.querySelectorAll('[data-price-only]').forEach(el => {
+            el.style.display = '';
+        });
+        return;
+    }
+    card.style.display = '';
+
+    // Preisbasierte Karten sind in dieser Strategie bedeutungslos
+    document.querySelectorAll('[data-price-only]').forEach(el => {
+        el.style.display = 'none';
+    });
+
+    const badge = document.getElementById('shaping-dryrun-badge');
+    badge.style.display = data.dry_run ? '' : 'none';
+
+    const plan = data.shaping_plan;
+    if (!plan) {
+        document.getElementById('shaping-reason').textContent =
+            'Warte auf ersten Plan (wird im Steuerungsintervall berechnet)...';
+        return;
+    }
+
+    document.getElementById('shaping-reason').textContent = plan.reason || '';
+    document.getElementById('shaping-corridor').textContent =
+        `${plan.min_soc}% – ${plan.max_soc}%`;
+    document.getElementById('shaping-charge').textContent =
+        `${Math.round(plan.max_charge_power)} W`;
+    document.getElementById('shaping-discharge').textContent =
+        `${Math.round(plan.max_discharge_power)} W`;
+
+    const diag = plan.diagnostics || {};
+    document.getElementById('shaping-overnight').textContent =
+        diag.overnight_need_kwh != null ? `${diag.overnight_need_kwh} kWh` : '--';
+    document.getElementById('shaping-shortfall').textContent =
+        diag.tomorrow_shortfall_kwh != null ? `${diag.tomorrow_shortfall_kwh} kWh` : 'keine Prognose';
+
+    // Rückmeldung aus den Registern: hat der Wechselrichter die Limits übernommen?
+    const rb = document.getElementById('shaping-readback');
+    if (data.dry_run) {
+        rb.textContent = 'Dry-Run: Es wird nichts auf den Wechselrichter geschrieben. '
+                       + 'Die Werte oben zeigen, was gesetzt würde.';
+    } else if (data.limits_readback) {
+        const r = data.limits_readback;
+        const parts = [];
+        if (r.min_soc != null) parts.push(`Min-SOC ${r.min_soc}%`);
+        if (r.max_soc != null) parts.push(`Max-SOC ${r.max_soc}%`);
+        if (r.max_charge_power != null) parts.push(`Laden ${Math.round(r.max_charge_power)} W`);
+        if (r.max_discharge_power != null) parts.push(`Entladen ${Math.round(r.max_discharge_power)} W`);
+        rb.textContent = parts.length
+            ? 'Vom Wechselrichter zurückgelesen: ' + parts.join(' · ')
+            : '';
+    } else {
+        rb.textContent = '';
+    }
+}
+
 function updateStatus() {
     fetch(apiUrl('api/status'))
         .then(response => response.json())
@@ -364,9 +465,18 @@ function updateStatus() {
                 statusElement.textContent = 'Lädt (manuell)';
             } else if (mode === 'auto_charging') {
                 statusElement.textContent = 'Lädt (Auto)';
+            } else if (mode === 'shaping_normal') {
+                statusElement.textContent = 'PV-Shaping aktiv';
+            } else if (mode === 'shaping_safety') {
+                statusElement.textContent = 'Sicherheit: Entladen gesperrt';
+            } else if (mode === 'shaping_calibration') {
+                statusElement.textContent = 'Kalibrierladung';
             } else {
                 statusElement.textContent = mode;
             }
+
+            // v0.10.0 - PV-Shaping-Plan anzeigen
+            updateShapingCard(data);
             
             // Update battery
             const soc = data.battery.soc || 0;

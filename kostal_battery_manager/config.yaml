@@ -1,5 +1,5 @@
 name: Kostal Battery Manager edited by Phil
-version: "0.9.6"
+version: "0.10.0"
 slug: kostal_battery_manager
 description: "description: Intelligente Batteriesteuerung für Kostal Plenticore Plus mit PV-Prognose, Verbrauchslernen, intelligenter SOC-Optimierung und bedarfsgerechter Batterieladung"
 url: "https://github.com/kaiser1101/kostal-battery-manager.git"
@@ -77,39 +77,31 @@ options:
   tibber_price_threshold_1h: 8  # Prozent: Preisanstieg zur vorherigen Stunde
   tibber_price_threshold_3h: 8  # Prozent: 3h Block Vergleich
   charge_duration_per_10_percent: 18  # Minuten pro 10% SOC
+  # v0.10.0 - Ladestrategie
+  # "price"    = preisbasiert (Tibber, Legacy)
+  # "forecast" = prognosebasiert, ohne Preislogik
+  charging_strategy: "forecast"
+  # WICHTIG: Im Dry-Run wird NICHTS auf den Wechselrichter geschrieben.
+  # Alle Entscheidungen landen nur im Log. Zum Testen auf true lassen!
+  dry_run: true
+  soc_corridor_min: 30  # Weiche Untergrenze des schonenden SOC-Korridors (%)
+  soc_corridor_max: 80  # Weiche Obergrenze: kein routinemaessiges Vollladen (%)
+  soc_hard_safety_min: 15  # Harte Notbremse, unabhaengig vom Abend-Check (%)
+  pv_forecast_safety_margin: 0.8  # Anteil der PV-Prognose, dem vertraut wird
+  pv_dropoff_threshold: 0.05  # Trigger: PV unter X des Tagesmaximums
+  escalation_days: 2  # Nach X Tagen Korridor-Unterschreitung eskalieren
+  escalation_soc_boost: 15  # Ziel-SOC-Anhebung bei Eskalation (%)
+  # Ladeleistungs-Drosselung (verteilt die Ladung ueber den Nachmittag)
+  enable_charge_throttling: true
+  min_charge_power: 500  # Untergrenze der gedrosselten Ladeleistung (W)
+  # Periodische Kalibrierladung auf 100% fuer die BMS-SOC-Schaetzung
+  calibration_interval_days: 28  # 0 = deaktiviert
+  calibration_min_pv_kwh: 15.0  # Nur an Tagen mit mind. so viel PV-Prognose
   # v0.4.0 - Consumption Learning & Optimization
   enable_consumption_learning: true
   learning_period_days: 28  # 4 Wochen Lernzeitraum
   home_consumption_sensor: "sensor.home_energy_consumption"
-  # ENTWEDER: Manuelles Lastprofil mit stündlichen Werten (0-23 Uhr)
-  # Stündlicher Verbrauch in kW (Durchschnitt über die Stunde)
-  # Wird schrittweise durch echte Messwerte überschrieben
-  manual_load_profile:
-    "0": 0.2
-    "1": 0.2
-    "2": 0.15
-    "3": 0.15
-    "4": 0.15
-    "5": 0.2
-    "6": 0.5
-    "7": 2.0
-    "8": 1.5
-    "9": 1.0
-    "10": 0.8
-    "11": 0.9
-    "12": 1.2
-    "13": 0.8
-    "14": 0.7
-    "15": 0.6
-    "16": 0.7
-    "17": 1.5
-    "18": 2.0
-    "19": 1.8
-    "20": 1.2
-    "21": 0.8
-    "22": 0.5
-    "23": 0.3
-  # ODER: Durchschnittlicher Tagesverbrauch (wird durch 24 geteilt)
+  # Durchschnittlicher Tagesverbrauch (wird durch 24 geteilt)
   # average_daily_consumption: 20.0  # kWh pro Tag
   # Fallback wenn keine Daten vorhanden (Standard: 1.0 kWh/h)
   # default_hourly_consumption_fallback: 1.0  # kWh pro Stunde
@@ -138,18 +130,21 @@ schema:
   battery_capacity: float(1.0,100.0)
   log_level: list(debug|info|warning|error)
   control_interval: int(10,300)
-  
-    # v0.10.0 - Charging Strategy
-  charging_strategy: forecast
 
-  # Forecast-based Evening Top-up
-  soc_corridor_min: 30
-  soc_corridor_max: 80
-  soc_hard_safety_min: 15
-  pv_forecast_safety_margin: 0.8
-  pv_dropoff_threshold: 0.05
-  escalation_days: 2
-  escalation_soc_boost: 15
+  # v0.10.0 - Charging Strategy
+  charging_strategy: list(price|forecast)
+  dry_run: bool
+  enable_charge_throttling: bool
+  min_charge_power: int(0,10000)
+  calibration_interval_days: int(0,365)
+  calibration_min_pv_kwh: float(0.0,200.0)
+  soc_corridor_min: int(5,60)
+  soc_corridor_max: int(40,100)
+  soc_hard_safety_min: int(5,50)
+  pv_forecast_safety_margin: float(0.1,1.0)
+  pv_dropoff_threshold: float(0.01,0.5)
+  escalation_days: int(1,14)
+  escalation_soc_boost: int(0,50)
 
   # Tibber Integration
   enable_tibber_optimization: bool

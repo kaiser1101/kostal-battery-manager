@@ -3,7 +3,22 @@
 Kostal Modbus TCP Client
 Portiert von batcharge.py
 
-Steuert die Batterie-Ladeleistung über Modbus Register 1034
+Zwei grundverschiedene Steuerwege (siehe Kostal Modbus-Doku Kap. 3.4):
+
+1. SETPOINT (Register 1034) - erzwingt einen Leistungsfluss.
+   Negativ = Laden, Positiv = Entladen.
+   ACHTUNG: Ein Ladesetpoint bei Nacht zieht die Energie aus dem NETZ.
+   Nur fuer die Legacy-Preisstrategie gedacht.
+
+2. LIMITS (Register 1038/1040/1042/1044) - begrenzen, was der
+   Wechselrichter mit seiner EIGENEN Logik tun darf:
+     1038  Max. Ladeleistung (W)
+     1040  Max. Entladeleistung (W)
+     1042  Minimum SOC (%)
+     1044  Maximum SOC (%)
+   Die interne Eigenverbrauchs-Optimierung laeuft weiter, nur eben
+   innerhalb dieser Grenzen. Es entsteht KEINE Netzladung.
+   Das ist der Weg fuer die prognosebasierte Strategie.
 """
 
 import logging
@@ -22,22 +37,90 @@ class ModbusClient:
     Negativ = Laden, Positiv = Entladen, 0 = Automatik
     """
     
-    def __init__(self, inverter_ip, port=1502, slave_id=71):
+    def __init__(self, inverter_ip, port=1502, slave_id=71, dry_run=False):
         """
         Initialize Modbus Client
-        
+
         Args:
             inverter_ip: IP-Adresse des Wechselrichters
             port: Modbus TCP Port (Standard: 1502)
             slave_id: Modbus Slave ID (Standard: 71)
+            dry_run: Wenn True, werden Schreibzugriffe NUR geloggt, nicht
+                     ausgefuehrt. Lesezugriffe laufen normal weiter, damit
+                     die Diagnose echte Werte sieht (Shadow-Modus).
         """
         self.inverter_ip = inverter_ip
         self.port = port
         self.slave_id = slave_id
+        self.dry_run = dry_run
         self.client = None
         self.connected = False
-        
-        logger.info(f"Modbus Client initialized for {inverter_ip}:{port}, Slave ID {slave_id}")
+        # Letzte geschriebene Limits - vermeidet redundante Writes und
+        # dient dem Dashboard als Anzeige des aktuellen Plans.
+        self.last_limits = {}
+        self._last_limit_refresh = None
+        # Wortreihenfolge fuer Float32. Default des Wechselrichters ist
+        # Little-endian (CDAB) = byteorder BIG + wordorder LITTLE.
+        # Kann am Geraet auf Big-endian (ABCD) umgestellt sein, siehe
+        # verify_byte_order().
+        self._wordorder = Endian.LITTLE
+
+        mode = " [DRY-RUN: keine Schreibzugriffe]" if dry_run else ""
+        logger.info(f"Modbus Client initialized for {inverter_ip}:{port}, Slave ID {slave_id}{mode}")
+
+    def _ensure_connection(self):
+        """Stellt sicher, dass eine offene Verbindung existiert."""
+        if not self.connected:
+            if not self.connect():
+                return False
+        if not self.client.is_socket_open():
+            logger.warning("Connection lost, reconnecting...")
+            return self.connect()
+        return True
+
+    def _write_float32(self, address, value, label):
+        """
+        Schreibt einen Float32-Wert (Big Endian, Little Word Order).
+
+        Zentraler Choke-Point fuer ALLE Schreibzugriffe - hier greift
+        der Dry-Run.
+
+        Returns:
+            bool: True bei Erfolg (im Dry-Run immer True)
+        """
+        if self.dry_run:
+            logger.info(f"[DRY-RUN] Wuerde schreiben: {label} = {value} (Register {address})")
+            return True
+
+        try:
+            if not self._ensure_connection():
+                logger.error(f"Cannot write {label} - not connected")
+                return False
+
+            builder = BinaryPayloadBuilder(
+                byteorder=Endian.BIG,
+                wordorder=self._wordorder
+            )
+            builder.add_32bit_float(float(value))
+            payload = builder.build()
+
+            result = self.client.write_registers(
+                address=address,
+                values=payload,
+                slave=self.slave_id,
+                skip_encode=True
+            )
+
+            if result.isError():
+                logger.error(f"Modbus write error for {label} (Register {address}): {result}")
+                return False
+
+            logger.info(f"{label} = {value} (Register {address})")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error writing {label} (Register {address}): {e}")
+            return False
     
     def connect(self):
         """
@@ -92,49 +175,161 @@ class ModbusClient:
                         Positive = Discharging (e.g., 2000 = discharge with 2000W)
                         0 = Automatic mode (back to internal control)
         
+        WARNUNG: Ein negativer Setpoint erzwingt Laden - nachts also aus
+        dem Netz. Fuer die prognosebasierte Strategie stattdessen die
+        Limit-Register verwenden (set_battery_limits).
+
         Returns:
             bool: True if successful
         """
-        try:
-            # Ensure connection
-            if not self.connected:
-                if not self.connect():
-                    logger.error("Cannot write - not connected")
-                    return False
-            
-            # Verify connection is still open
-            if not self.client.is_socket_open():
-                logger.warning("Connection lost, reconnecting...")
-                if not self.connect():
-                    return False
-            
-            # Prepare Float32 payload (Big Endian, Little Word Order)
-            builder = BinaryPayloadBuilder(
-                byteorder=Endian.BIG,
-                wordorder=Endian.LITTLE
-            )
-            builder.add_32bit_float(float(power_watts))
-            payload = builder.build()
-            
-            # Write to Register 1034 (Battery charge power setpoint)
-            result = self.client.write_registers(
-                address=1034,
-                values=payload,
-                slave=self.slave_id,
-                skip_encode=True
-            )
-            
-            if result.isError():
-                logger.error(f"Modbus write error: {result}")
-                return False
+        action = "Charging" if power_watts < 0 else "Discharging" if power_watts > 0 else "Automatic"
+        return self._write_float32(1034, power_watts, f"Battery power setpoint {power_watts}W ({action})")
+
+    # ------------------------------------------------------------------
+    # Limit-basierte Steuerung (Kostal Modbus-Doku Kap. 3.4)
+    # Begrenzt die interne Logik, statt Leistung zu erzwingen.
+    # ------------------------------------------------------------------
+
+    def set_max_charge_power(self, watts):
+        """Register 1038: Max. Ladeleistung in W. 0 = Laden unterbinden."""
+        return self._write_float32(1038, max(0.0, float(watts)), f"Max charge power {watts}W")
+
+    def set_max_discharge_power(self, watts):
+        """Register 1040: Max. Entladeleistung in W. 0 = Entladen unterbinden."""
+        return self._write_float32(1040, max(0.0, float(watts)), f"Max discharge power {watts}W")
+
+    def set_min_soc(self, percent):
+        """Register 1042: Minimum SOC in %. Untergrenze fuer das Entladen."""
+        value = min(100.0, max(0.0, float(percent)))
+        return self._write_float32(1042, value, f"Min SOC {value}%")
+
+    def set_max_soc(self, percent):
+        """Register 1044: Maximum SOC in %. Obergrenze fuer das Laden."""
+        value = min(100.0, max(0.0, float(percent)))
+        return self._write_float32(1044, value, f"Max SOC {value}%")
+
+    def set_battery_limits(self, max_charge_power=None, max_discharge_power=None,
+                           min_soc=None, max_soc=None, force=False,
+                           refresh_interval_s=600):
+        """
+        Schreibt mehrere Limits auf einmal.
+
+        Schreibt nur Werte, die sich seit dem letzten Aufruf geaendert
+        haben (ausser force=True), um den Wechselrichter nicht unnoetig
+        mit identischen Writes zu belasten.
+
+        Returns:
+            dict: {'written': [...], 'failed': [...], 'skipped': [...]}
+        """
+        targets = [
+            ('max_charge_power', max_charge_power, self.set_max_charge_power),
+            ('max_discharge_power', max_discharge_power, self.set_max_discharge_power),
+            ('min_soc', min_soc, self.set_min_soc),
+            ('max_soc', max_soc, self.set_max_soc),
+        ]
+
+        # Die Kostal-Doku sagt fuer Kap. 3.3 ausdruecklich, dass Setpoints
+        # einen Reset NICHT ueberleben; fuer die Limits in Kap. 3.4 schweigt
+        # sie. Falls sie ebenfalls fluechtig sind, wuerde der Aenderungs-Cache
+        # nach einem Reset des Wechselrichters nie neu schreiben. Deshalb
+        # periodisch erzwungen neu schreiben.
+        import time as _time
+        nowts = _time.monotonic()
+        if (self._last_limit_refresh is None or
+                nowts - self._last_limit_refresh > refresh_interval_s):
+            force = True
+            self._last_limit_refresh = nowts
+
+        report = {'written': [], 'failed': [], 'skipped': []}
+        for name, value, setter in targets:
+            if value is None:
+                continue
+            value = round(float(value), 1)
+            if not force and self.last_limits.get(name) == value:
+                report['skipped'].append(name)
+                continue
+            if setter(value):
+                self.last_limits[name] = value
+                report['written'].append(f"{name}={value}")
             else:
-                action = "Charging" if power_watts < 0 else "Discharging" if power_watts > 0 else "Automatic"
-                logger.info(f"Battery power set to {power_watts}W ({action})")
-                return True
-                
-        except Exception as e:
-            logger.error(f"Error writing battery power: {e}")
+                report['failed'].append(name)
+
+        return report
+
+    def verify_byte_order(self):
+        """
+        Register 5: eingestellte MODBUS Byte Order des Wechselrichters.
+            0x00 = Little-endian (CDAB)  -> Default
+            0x01 = Big-endian (ABCD)     -> SunSpec-Einstellung
+
+        Float-Register wuerden bei falscher Annahme voellig falsche Werte
+        liefern - und beim SCHREIBEN eines SOC-Limits waere das gefaehrlich.
+        Deshalb einmalig pruefen und die Wortreihenfolge anpassen.
+
+        Returns:
+            bool: True wenn die Reihenfolge sicher bestimmt werden konnte
+        """
+        raw = self.read_register(5, count=1, data_type='uint16')
+        if raw is None:
+            logger.warning("Byte Order (Register 5) nicht lesbar - bleibe beim "
+                           "Default Little-endian (CDAB)")
             return False
+
+        if raw == 0:
+            self._wordorder = Endian.LITTLE
+            logger.info("Byte Order: Little-endian (CDAB) - Default, passt zur Implementierung")
+        elif raw == 1:
+            self._wordorder = Endian.BIG
+            logger.warning("Byte Order: Big-endian (ABCD/SunSpec) am Wechselrichter "
+                           "eingestellt - Wortreihenfolge entsprechend umgestellt")
+        else:
+            logger.error(f"Unerwarteter Wert in Register 5: {raw} - bleibe beim Default")
+            return False
+        return True
+
+    def read_battery_limits(self):
+        """
+        Liest die vier Limit-Register zurueck.
+
+        Dient der Verifikation: akzeptiert der Wechselrichter unsere
+        Writes ueberhaupt? Im Dry-Run zeigt das die echten Ist-Werte.
+
+        Returns:
+            dict: gelesene Werte (fehlende Register fehlen im dict)
+        """
+        registers = {
+            'max_charge_power': 1038,
+            'max_discharge_power': 1040,
+            'min_soc': 1042,
+            'max_soc': 1044,
+        }
+        values = {}
+        for name, address in registers.items():
+            value = self.read_register(address, count=2, data_type='float32')
+            if value is not None:
+                values[name] = round(value, 1)
+        return values
+
+    def read_battery_management_mode(self):
+        """
+        Register 1080 (U8, read-only): aktueller Batterie-Management-Modus.
+
+        Returns:
+            tuple: (raw_value, description) oder (None, 'unknown')
+        """
+        modes = {
+            0: 'Kein externes Batteriemanagement',
+            1: 'Extern via digital I/O',
+            2: 'Extern via MODBUS',
+        }
+        raw = self.read_register(1080, count=1, data_type='uint16')
+        if raw is None:
+            return None, 'unknown'
+        return raw, modes.get(raw, f'unbekannt ({raw})')
+
+    def read_work_capacity(self):
+        """Register 1068 (RO): nutzbare Batteriekapazitaet in Wh."""
+        return self.read_register(1068, count=2, data_type='float32')
     
     def start_charging(self, power_watts):
         """
@@ -199,13 +394,17 @@ class ModbusClient:
             if result.isError():
                 logger.error(f"Modbus read error: {result}")
                 return None
-            
+
+            # U8/U16 stehen in einem einzelnen Register - kein Decoder noetig
+            if data_type in ('uint8', 'uint16'):
+                return result.registers[0]
+
             # Parse based on data type
             from pymodbus.payload import BinaryPayloadDecoder
             decoder = BinaryPayloadDecoder.fromRegisters(
                 result.registers,
                 byteorder=Endian.BIG,
-                wordorder=Endian.LITTLE
+                wordorder=self._wordorder
             )
             
             if data_type == 'float32':
@@ -226,11 +425,13 @@ class ModbusClient:
         """Test Modbus connection"""
         try:
             if self.connect():
-                # Try to read a register to verify communication
-                # Register 1068 = Battery SOC
-                soc = self.read_register(1068, count=2, data_type='float32')
-                if soc is not None:
-                    logger.info(f"Modbus test successful, Battery SOC: {soc}%")
+                # Register 1068 = Battery work capacity in Wh (NICHT SOC -
+                # das war in frueheren Versionen falsch beschriftet).
+                capacity_wh = self.read_work_capacity()
+                if capacity_wh is not None:
+                    logger.info(f"Modbus test successful, Battery work capacity: {capacity_wh} Wh")
+                    raw, mode = self.read_battery_management_mode()
+                    logger.info(f"Battery management mode: {mode} (Register 1080 = {raw})")
                     return True
             return False
         except Exception as e:

@@ -116,7 +116,12 @@ def load_config():
         'input_datetime_planned_charge_end': 'input_datetime.tibber_geplantes_ladeende',
         'input_datetime_planned_charge_start': 'input_datetime.tibber_geplanter_ladebeginn',
         # v0.10.0 - Forecast-only "Evening Top-up" strategy (no price logic)
-        'charging_strategy': 'price',       # 'price' (legacy/Tibber) or 'forecast' (evening top-up)
+        'charging_strategy': 'forecast',    # 'price' (legacy/Tibber) or 'forecast' (PV-Shaping)
+        'dry_run': True,                    # Sicherer Default: nichts schreiben
+        'enable_charge_throttling': True,
+        'min_charge_power': 500,
+        'calibration_interval_days': 28,
+        'calibration_min_pv_kwh': 15.0,
         'soc_corridor_min': 30,             # weiche Untergrenze, schonender Korridor
         'soc_corridor_max': 80,             # weiche Obergrenze, kein Vollladen
         'soc_hard_safety_min': 15,          # harte Notbremse, unabhängig vom Abend-Check
@@ -158,8 +163,8 @@ app_state = {
         'last_calculated': None
     },
     'daily_battery_schedule': None,  # v0.9.0 - Full-day predictive plan (price strategy)
-    'forecast_evaluation': None,     # v0.10.0 - Last evening top-up evaluation (forecast strategy)
-    'forecast_target_soc': None,     # v0.10.0 - Target SOC of the current top-up, if any
+    'shaping_plan': None,            # v0.10.0 - Aktueller PV-Shaping-Plan (Grenzwerte)
+    'limits_readback': None,         # v0.10.0 - Zurueckgelesene Limit-Register
     'logs': []
 }
 
@@ -191,7 +196,7 @@ try:
         from .core.modbus_client import ModbusClient
         from .core.ha_client import HomeAssistantClient
         from .core.tibber_optimizer import TibberOptimizer
-        from .core.forecast_optimizer import ForecastOptimizer  # v0.10.0
+        from .core.pv_shaping_planner import PVShapingPlanner  # v0.10.0
         from .core.consumption_learner import ConsumptionLearner
         from .core.forecast_solar_api import ForecastSolarAPI  # v0.9.2
     except ImportError:
@@ -202,7 +207,7 @@ try:
         from core.modbus_client import ModbusClient
         from core.ha_client import HomeAssistantClient
         from core.tibber_optimizer import TibberOptimizer
-        from core.forecast_optimizer import ForecastOptimizer  # v0.10.0
+        from core.pv_shaping_planner import PVShapingPlanner  # v0.10.0
         from core.consumption_learner import ConsumptionLearner
         from core.forecast_solar_api import ForecastSolarAPI  # v0.9.2
     
@@ -214,12 +219,21 @@ try:
     )
     modbus_client = ModbusClient(
         config['inverter_ip'],
-        config['inverter_port']
+        config['inverter_port'],
+        dry_run=config.get('dry_run', False)
     )
     ha_client = HomeAssistantClient()
     tibber_optimizer = TibberOptimizer(config)
-    # v0.10.0 - Forecast-only optimizer, active when charging_strategy == 'forecast'
-    forecast_optimizer = ForecastOptimizer(config)
+    # v0.10.0 - PV-Shaping-Planer (limit-basiert, keine Netzladung)
+    pv_shaping_planner = PVShapingPlanner(config)
+
+    # Byte Order des Wechselrichters pruefen, BEVOR Float-Register
+    # geschrieben werden. Bei falscher Annahme waeren alle Float-Werte
+    # (inkl. SOC-Limits) unsinnig - siehe Kostal-Doku Kap. 2.1.2.
+    try:
+        modbus_client.verify_byte_order()
+    except Exception as e:
+        logger.warning(f"Byte-Order-Pruefung fehlgeschlagen: {e}")
 
     # v0.4.0 - Initialize consumption learner
     consumption_learner = None
@@ -251,23 +265,18 @@ try:
         # except Exception as e:
         #     logger.error(f"Error cleaning up duplicates: {e}")
 
-        # Load manual profile if provided
-        manual_profile = config.get('manual_load_profile')
-        if manual_profile:
-            try:
-                consumption_learner.add_manual_profile(manual_profile)
-                add_log('INFO', f'Consumption learner initialized with manual profile ({learning_days} days)')
-            except Exception as e:
-                logger.error(f"Error loading manual profile: {e}")
-                add_log('ERROR', f'Failed to load manual profile: {str(e)}')
-        else:
-            add_log('INFO', f'Consumption learner initialized (learning period: {learning_days} days, fallback: {default_fallback:.2f} kWh/h)')
+        # v0.10.0 - Kein manuelles Lastprofil mehr. Der Learner baut das
+        # Profil aus echten Messwerten auf; ein handgeschriebenes Profil
+        # haette dagegen konkurriert. Bis genug Daten da sind, greift
+        # default_hourly_consumption_fallback.
+        add_log('INFO', f'Consumption learner initialized (learning period: {learning_days} days, '
+                        f'fallback: {default_fallback:.2f} kWh/h)')
 
         # Connect consumption learner to optimizer(s)
         if tibber_optimizer:
             tibber_optimizer.set_consumption_learner(consumption_learner)
-        if forecast_optimizer:
-            forecast_optimizer.set_consumption_learner(consumption_learner)
+        if pv_shaping_planner:
+            pv_shaping_planner.set_consumption_learner(consumption_learner)
 
     # v0.9.2 - Initialize Forecast.Solar Professional API if enabled
     forecast_solar_api = None
@@ -313,8 +322,8 @@ try:
                 # Connect to optimizer(s)
                 if tibber_optimizer:
                     tibber_optimizer.set_forecast_solar_api(forecast_solar_api)
-                if forecast_optimizer:
-                    forecast_optimizer.set_forecast_solar_api(forecast_solar_api)
+                if pv_shaping_planner:
+                    pv_shaping_planner.set_forecast_solar_api(forecast_solar_api)
 
                 add_log('INFO', f'Forecast.Solar Professional API enabled (lat={latitude}, lon={longitude}, {len(planes)} roofs)')
             else:
@@ -344,7 +353,7 @@ except ImportError as e:
     modbus_client = None
     ha_client = None
     tibber_optimizer = None
-    forecast_optimizer = None
+    pv_shaping_planner = None
     consumption_learner = None
     add_log('WARNING', 'Running in development mode - components not available')
 except Exception as e:
@@ -353,7 +362,7 @@ except Exception as e:
     modbus_client = None
     ha_client = None
     tibber_optimizer = None
-    forecast_optimizer = None
+    pv_shaping_planner = None
     consumption_learner = None
     add_log('ERROR', f'Failed to initialize components: {str(e)}')
 
@@ -663,7 +672,12 @@ def api_status():
         'price': app_state['price'],
         'forecast': app_state['forecast'],
         'pv': app_state.get('pv', {'power_now': 0, 'remaining_today': 0}),
-        'charging_plan': app_state.get('charging_plan', {})
+        'charging_plan': app_state.get('charging_plan', {}),
+        # v0.10.0 - PV-Shaping
+        'charging_strategy': config.get('charging_strategy', 'forecast'),
+        'dry_run': config.get('dry_run', False),
+        'shaping_plan': app_state.get('shaping_plan'),
+        'limits_readback': app_state.get('limits_readback')
     })
 
 @app.route('/api/config', methods=['GET', 'POST'])
@@ -1816,8 +1830,11 @@ def controller_loop():
             if app_state['controller_running'] and config.get('auto_optimization_enabled', True):
                 strategy = config.get('charging_strategy', 'price')
 
-                # v0.10.0 - Forecast-only "Evening Top-up" strategy (no price logic)
-                if strategy == 'forecast' and ha_client and kostal_api and modbus_client and forecast_optimizer:
+                # v0.10.0 - Prognosebasiertes PV-Shaping (keine Preislogik,
+                # KEINE Netzladung). Wir setzen ausschliesslich Grenzwerte
+                # (Modbus 1038/1040/1042/1044) und lassen die interne
+                # Eigenverbrauchs-Optimierung des Wechselrichters darin laufen.
+                if strategy == 'forecast' and ha_client and modbus_client and pv_shaping_planner:
                     try:
                         current_soc = float(ha_client.get_state(
                             config.get('battery_soc_sensor', 'sensor.zwh8_8500_battery_soc')
@@ -1825,48 +1842,46 @@ def controller_loop():
                         app_state['battery']['soc'] = current_soc
                         battery_capacity = config.get('battery_capacity', 10.6)
 
-                        evaluation = forecast_optimizer.evaluate_evening_topup(
+                        plan = pv_shaping_planner.plan(
                             ha_client=ha_client,
                             config=config,
                             current_soc=current_soc,
                             battery_capacity=battery_capacity
                         )
-                        app_state['forecast_evaluation'] = evaluation
+                        app_state['shaping_plan'] = plan
 
-                        should_charge = evaluation['should_charge']
-                        reason = evaluation['reason']
-                        target_soc = evaluation['target_soc']
+                        report = modbus_client.set_battery_limits(
+                            max_charge_power=plan['max_charge_power'],
+                            max_discharge_power=plan['max_discharge_power'],
+                            min_soc=plan['min_soc'],
+                            max_soc=plan['max_soc'],
+                        )
 
-                        # While an evening top-up is in progress, keep charging until
-                        # the (single, pre-computed) target SOC is reached.
-                        if app_state['inverter']['mode'] == 'auto_charging':
-                            if current_soc >= app_state.get('forecast_target_soc', target_soc):
-                                should_charge = False
-                                reason = f"Target SOC reached ({current_soc:.1f}% >= {app_state.get('forecast_target_soc'):.1f}%)"
-                            else:
-                                should_charge = True  # keep going, don't re-decide mid-charge
+                        # Nur loggen, wenn sich der Plan tatsaechlich geaendert
+                        # hat - sonst flutet der 30s-Takt das Logbuch.
+                        if report['written']:
+                            prefix = '[DRY-RUN] ' if modbus_client.dry_run else ''
+                            add_log('INFO', f"{prefix}PV-Shaping [{plan['mode']}]: "
+                                            f"{', '.join(report['written'])} | {plan['reason']}")
+                        if report['failed']:
+                            add_log('WARNING', f"Limits konnten nicht geschrieben werden: "
+                                               f"{', '.join(report['failed'])}")
 
-                        if should_charge and evaluation['checked']:
-                            app_state['forecast_target_soc'] = target_soc
+                        # Verifikation: akzeptiert der Wechselrichter die Limits?
+                        if report['written'] and not modbus_client.dry_run:
+                            readback = modbus_client.read_battery_limits()
+                            app_state['limits_readback'] = readback
+                            for key, target in (('max_soc', plan['max_soc']),
+                                                ('min_soc', plan['min_soc'])):
+                                actual = readback.get(key)
+                                if actual is not None and abs(actual - target) > 1.0:
+                                    add_log('WARNING', f"Register-Rueckmeldung weicht ab: "
+                                                       f"{key} gesetzt={target} gelesen={actual}")
 
-                        # Aktion ausführen
-                        if should_charge and app_state['inverter']['mode'] not in ['manual_charging', 'auto_charging']:
-                            kostal_api.set_external_control(True)
-                            charge_power = -config['max_charge_power']
-                            modbus_client.write_battery_power(charge_power)
-                            app_state['inverter']['mode'] = 'auto_charging'
-                            app_state['inverter']['control_mode'] = 'external'
-                            add_log('INFO', f'Forecast-Optimization started charging: {reason}')
-
-                        elif not should_charge and app_state['inverter']['mode'] == 'auto_charging':
-                            modbus_client.write_battery_power(0)
-                            kostal_api.set_external_control(False)
-                            app_state['inverter']['mode'] = 'automatic'
-                            app_state['inverter']['control_mode'] = 'internal'
-                            add_log('INFO', f'Forecast-Optimization stopped charging: {reason}')
+                        app_state['inverter']['mode'] = f"shaping_{plan['mode']}"
 
                     except Exception as e:
-                        logger.error(f"Error in forecast-optimization: {e}", exc_info=True)
+                        logger.error(f"Error in PV shaping: {e}", exc_info=True)
 
                 # v0.3.0 - Legacy: Intelligent Tibber-based (price) charging
                 elif strategy == 'price' and ha_client and kostal_api and modbus_client and tibber_optimizer:

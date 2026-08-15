@@ -1,5 +1,20 @@
 #!/usr/bin/env python3
 """
+!!! VERALTET - NICHT MEHR VERDRAHTET (Stand v0.10.0) !!!
+
+Dieses Modul plant eine abendliche Nachladung auf einen Ziel-SOC. Der
+Aufrufer setzte dafuer Register 1034 (Ladesetpoint) - und weil der
+Trigger der PV-Abfall am Abend ist, kam diese Energie zwangsweise aus
+dem NETZ. Fuer eine PV-only-Anlage ist das genau falsch.
+
+Ersetzt durch core/pv_shaping_planner.py, das ausschliesslich Grenzen
+(Register 1038/1040/1042/1044) setzt und damit nie Netzstrom zieht.
+
+Datei bleibt vorerst als Referenz erhalten, wird aber von app.py nicht
+mehr importiert. Nicht ohne Umbau reaktivieren.
+
+---
+
 Forecast-basierte Lade-Optimierung ("Evening Top-up")
 
 Ersetzt die preisbasierte Tibber-Logik durch einen rein prognosebasierten Ansatz:
