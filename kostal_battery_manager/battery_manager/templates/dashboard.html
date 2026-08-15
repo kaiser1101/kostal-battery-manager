@@ -242,8 +242,12 @@
                     <div id="learning-records" style="font-size: 1.5rem; font-weight: bold;">0</div>
                 </div>
                 <div>
-                    <div style="font-size: 0.9rem; opacity: 0.7;">Gelernte Stunden:</div>
+                    <div style="font-size: 0.9rem; opacity: 0.7;">Abgedeckte Stunden:</div>
                     <div id="learned-hours" style="font-size: 1.5rem; font-weight: bold;">0</div>
+                </div>
+                <div>
+                    <div style="font-size: 0.9rem; opacity: 0.7;">davon live erfasst:</div>
+                    <div id="learning-live" style="font-size: 1.5rem; font-weight: bold;">0</div>
                 </div>
             </div>
             <div style="font-size: 0.85rem; opacity: 0.6;" id="learning-period">
@@ -845,15 +849,20 @@ function updateLearningStats() {
 
                 // Update progress
                 document.getElementById('learning-progress').textContent =
-                    stats.learning_progress + '%';
+                    stats.learning_progress + '%'
+                    + (stats.days_covered != null
+                        ? ` (${stats.days_covered}/${stats.learning_days} Tage)` : '');
 
                 // Update records
                 document.getElementById('learning-records').textContent =
                     stats.total_records;
 
-                // Update learned hours
+                // Abgedeckte Stunden des Tages (0-24), nicht Anzahl Datensaetze
                 document.getElementById('learned-hours').textContent =
-                    stats.learned_records;
+                    (stats.hours_covered != null ? stats.hours_covered : '?') + ' / 24';
+
+                const live = document.getElementById('learning-live');
+                if (live) live.textContent = stats.learned_records;
 
                 // Update period
                 if (stats.oldest_record && stats.newest_record) {

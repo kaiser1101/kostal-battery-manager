@@ -858,14 +858,33 @@ class ConsumptionLearner:
 
             row = cursor.fetchone()
 
+            # Abdeckung: fuer wie viele der 24 Stunden liegen ueberhaupt
+            # Daten vor, und ueber wie viele Tage?
+            cov = conn.execute("""
+                SELECT COUNT(DISTINCT hour), COUNT(DISTINCT DATE(timestamp))
+                FROM hourly_consumption
+            """).fetchone()
+            hours_covered = int(cov[0]) if cov and cov[0] else 0
+            days_covered = int(cov[1]) if cov and cov[1] else 0
+
             if row:
+                # Der Lernfortschritt misst die ABDECKUNG des Lernzeitraums,
+                # nicht den Anteil live erfasster Datensaetze. Frueher stand
+                # hier learned/total - das zeigte bei frisch importierter
+                # Historie 2%, obwohl alle 24 Stunden belegt waren, und war
+                # damit schlicht irrefuehrend.
+                progress = round(min(100.0, days_covered / self.learning_days * 100), 1) \
+                    if self.learning_days else 0.0
                 return {
                     'total_records': row[0],
                     'manual_records': row[1],
                     'learned_records': row[2],
                     'oldest_record': row[3],
                     'newest_record': row[4],
-                    'learning_progress': round((row[2] / row[0] * 100) if row[0] > 0 else 0, 1)
+                    'hours_covered': hours_covered,
+                    'days_covered': days_covered,
+                    'learning_days': self.learning_days,
+                    'learning_progress': progress,
                 }
 
         return {
@@ -874,6 +893,9 @@ class ConsumptionLearner:
             'learned_records': 0,
             'oldest_record': None,
             'newest_record': None,
+            'hours_covered': 0,
+            'days_covered': 0,
+            'learning_days': self.learning_days,
             'learning_progress': 0.0
         }
 

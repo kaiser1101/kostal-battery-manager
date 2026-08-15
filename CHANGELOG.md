@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.12.1] - 2026-08-15
+
+### Fixed
+- **"Lernfortschritt" zeigte einen irrefuehrenden Wert.** Gerechnet wurde
+  `live_erfasste / alle Datensaetze` - bei frisch importierter Historie also
+  2%, obwohl bereits alle 24 Stunden des Tages belegt waren. Der
+  Fortschritt misst jetzt die Abdeckung des Lernzeitraums in Tagen.
+- Die Kachel "Gelernte Stunden" zeigte die Anzahl live erfasster
+  Datensaetze statt der abgedeckten Tagesstunden. Jetzt "Abgedeckte
+  Stunden: X / 24", daneben getrennt die live erfassten.
+- `get_statistics()` liefert zusaetzlich `hours_covered`, `days_covered`
+  und `learning_days`.
+
+### Changed
+- `home_consumption_sensor` in config.yaml auf den neutralen Standard
+  zurueckgesetzt. Die Datei enthaelt die Vorgaben fuer ALLE Nutzer und
+  landet im oeffentlichen Repository - eigene Sensornamen gehoeren in die
+  Add-on-Konfiguration von Home Assistant.
+
 ## [0.12.0] - 2026-08-15
 
 ### Added

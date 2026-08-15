@@ -1,5 +1,5 @@
 name: Kostal Battery Manager edited by Phil
-version: "0.12.0"
+version: "0.12.1"
 slug: kostal_battery_manager
 description: "description: Intelligente Batteriesteuerung für Kostal Plenticore Plus mit PV-Prognose, Verbrauchslernen, intelligenter SOC-Optimierung und bedarfsgerechter Batterieladung"
 url: "https://github.com/kaiser1101/kostal-battery-manager.git"
@@ -109,8 +109,10 @@ options:
   # v0.4.0 - Consumption Learning & Optimization
   enable_consumption_learning: true
   learning_period_days: 28  # 4 Wochen Lernzeitraum
-  #home_consumption_sensor: "sensor.home_energy_consumption"
-  home_consumption_sensor: "sensor.hostname_kaiserwerk_home_power"
+  # ACHTUNG: Hier steht der STANDARD fuer alle Nutzer. Den eigenen
+  # Sensornamen in der Add-on-Konfiguration von Home Assistant eintragen,
+  # nicht hier - diese Datei landet im oeffentlichen Repository.
+  home_consumption_sensor: "sensor.home_energy_consumption"
   # Durchschnittlicher Tagesverbrauch (wird durch 24 geteilt)
   # average_daily_consumption: 20.0  # kWh pro Tag
   # Fallback wenn keine Daten vorhanden (Standard: 1.0 kWh/h)
