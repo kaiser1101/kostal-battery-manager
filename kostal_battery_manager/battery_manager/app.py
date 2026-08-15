@@ -852,6 +852,8 @@ def api_effectiveness():
         current = ha_client.get_state(sensor)
         kurz = ha_client.get_history(sensor, datetime.now() - timedelta(days=2))
 
+        fehler = getattr(ha_client, 'last_history_error', None)
+
         if current is None:
             grund = (f'Die Entitaet {sensor} existiert nicht. Pruefe den Namen unter '
                      f'Entwicklerwerkzeuge -> Zustaende.')
@@ -865,9 +867,13 @@ def api_effectiveness():
                      f'(recorder: exclude in configuration.yaml) oder die Aufzeichnung wurde '
                      f'erst kuerzlich aktiviert.')
 
+        if fehler:
+            grund += f' | Meldung von Home Assistant: {fehler}'
+
         return jsonify({'success': False, 'error': grund,
                         'sensor': sensor, 'aktueller_wert': current,
-                        'eintraege_2_tage': len(kurz)}), 200
+                        'eintraege_2_tage': len(kurz),
+                        'ha_meldung': fehler}), 200
 
     cmin = float(config.get('soc_corridor_min', 30))
     cmax = float(config.get('soc_corridor_max', 80))

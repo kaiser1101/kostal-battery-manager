@@ -24,6 +24,9 @@ class HomeAssistantClient:
             'Authorization': f'Bearer {self.token}',
             'Content-Type': 'application/json'
         }
+        # Letzter Fehler bei get_history - damit Aufrufer die Ursache
+        # nennen koennen statt zu raten
+        self.last_history_error = None
         
         if not self.token:
             logger.warning("No SUPERVISOR_TOKEN found - running in development mode")
@@ -229,7 +232,9 @@ class HomeAssistantClient:
             list: List of state changes, each with 'state', 'last_changed', etc.
                   Returns empty list if failed
         """
+        self.last_history_error = None
         if not self.token:
+            self.last_history_error = 'kein SUPERVISOR_TOKEN'
             logger.debug(f"Cannot get history for {entity_id} - no token")
             return []
 
@@ -259,11 +264,21 @@ class HomeAssistantClient:
                     logger.info(f"Retrieved {len(history)} history entries for {entity_id}")
                     return history
                 else:
+                    self.last_history_error = (f'HTTP 200, aber leere Antwort - HA kennt fuer '
+                                               f'diesen Zeitraum keine aufgezeichneten Werte')
                     logger.warning(f"No history data found for {entity_id}")
                     return []
             else:
+                self.last_history_error = (f'HTTP {response.status_code}: '
+                                           f'{response.text[:200]}')
                 logger.error(f"Failed to get history for {entity_id}: HTTP {response.status_code}")
                 return []
+
+        except requests.Timeout:
+            self.last_history_error = ('Zeitueberschreitung nach 30s - der Zeitraum ist '
+                                       'vermutlich zu gross fuer diese Entitaet')
+            logger.error(f"Timeout getting history for {entity_id}")
+            return []
 
         except Exception as e:
             logger.error(f"Error getting history for {entity_id}: {e}")

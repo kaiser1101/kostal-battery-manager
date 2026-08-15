@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.12.3] - 2026-08-15
+
+### Fixed
+- **Timeout-Handler war in der falschen Methode gelandet.** Ein
+  fehlplatzierter `except requests.Timeout` in `set_state()` haette dort
+  eine leere Liste statt `False` zurueckgegeben und auf ein Attribut
+  zugegriffen, das die Methode nicht kennt. Verschoben nach
+  `get_history()`, wo er hingehoert.
+
+### Added
+- `HomeAssistantClient.last_history_error`: haelt die Ursache eines
+  fehlgeschlagenen Historienabrufs fest (HTTP-Status, leere Antwort,
+  Zeitueberschreitung). Die Wirkungskontrolle nennt sie jetzt im Klartext,
+  statt eine Vermutung auszugeben.
+
 ## [0.12.2] - 2026-08-15
 
 ### Fixed
