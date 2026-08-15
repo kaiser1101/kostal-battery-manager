@@ -843,8 +843,16 @@ def api_effectiveness():
     if not sensor:
         return jsonify({'success': False, 'error': 'battery_soc_sensor nicht konfiguriert'}), 200
 
-    start = datetime.now() - timedelta(days=days)
-    history = ha_client.get_history(sensor, start)
+    # Nach und nach kuerzere Zeitraeume versuchen. Nach einer Aenderung von
+    # purge_keep_days reicht die Historie oft nur wenige Tage zurueck - dann
+    # scheitert die Auswertung sonst, obwohl Daten da sind.
+    history = []
+    genutzte_tage = days
+    for versuch in [d for d in (days, 14, 7, 3, 2) if d <= days]:
+        history = ha_client.get_history(sensor, datetime.now() - timedelta(days=versuch))
+        if history:
+            genutzte_tage = versuch
+            break
 
     if not history:
         # Genauer hinschauen, statt pauschal auf den Recorder zu verweisen:
@@ -881,7 +889,8 @@ def api_effectiveness():
     result = {
         'success': True,
         'sensor': sensor,
-        'zeitraum_tage': days,
+        'zeitraum_tage': genutzte_tage,
+        'zeitraum_angefragt': days,
         'korridor': {'min': cmin, 'max': cmax},
         'gesamt': effectiveness.analyse_soc_history(history, cmin, cmax),
     }

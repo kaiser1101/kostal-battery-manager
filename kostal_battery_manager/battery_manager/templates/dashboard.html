@@ -168,7 +168,8 @@
                 Wie lange lag der Ladestand über dem Korridor? Das ist die entscheidende
                 Größe für die kalendarische Alterung.
             </div>
-            <button onclick="loadEffectiveness(30)" class="btn btn-secondary">30 Tage auswerten</button>
+            <button onclick="loadEffectiveness(7)" class="btn btn-secondary">7 Tage</button>
+            <button onclick="loadEffectiveness(30)" class="btn btn-secondary" style="margin-left:0.5rem;">30 Tage</button>
             <button onclick="loadEffectiveness(90)" class="btn btn-secondary" style="margin-left:0.5rem;">90 Tage</button>
             <pre id="effectiveness-result" style="display:none; margin-top: 1rem; padding: 0.75rem;
                  background: rgba(128,128,128,0.12); border-radius: 6px; font-size: 0.8rem;
@@ -427,6 +428,10 @@ function loadEffectiveness(days) {
         .then(d => {
             if (!d.success) { out.textContent = d.error || 'Auswertung fehlgeschlagen'; return; }
             let t = '';
+            if (d.zeitraum_angefragt && d.zeitraum_tage < d.zeitraum_angefragt) {
+                t += `Hinweis: Fuer ${d.zeitraum_angefragt} Tage lagen keine Daten vor, `
+                   + `ausgewertet wurden ${d.zeitraum_tage} Tage.\n\n`;
+            }
             if (d.vorher || d.nachher) {
                 t += fmtBlock('VORHER  (ohne Strategie)', d.vorher, d.korridor) + '\n';
                 t += fmtBlock('NACHHER (mit Strategie)', d.nachher, d.korridor) + '\n';
@@ -1037,7 +1042,7 @@ function initCharts() {
                     },
                     {
                         type: 'bar',
-                        label: 'Geplante Ladung (kWh)',
+                        label: 'Ladung (+) / Entladung (\u2212) pro Stunde (kWh)',
                         data: [],
                         backgroundColor: 'rgba(244, 67, 54, 0.7)',
                         borderColor: 'rgb(244, 67, 54)',

@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.12.4] - 2026-08-15
+
+### Fixed
+- **Wirkungskontrolle scheiterte bei kurzer Historie.** Angeboten wurden
+  nur 30 und 90 Tage; reicht die Aufzeichnung erst wenige Tage zurueck -
+  etwa direkt nach einer Aenderung von `purge_keep_days` - lieferten beide
+  nichts, obwohl Daten vorhanden waren. Der Zeitraum wird jetzt
+  automatisch verkuerzt (30 -> 14 -> 7 -> 3 -> 2 Tage) und der
+  tatsaechlich ausgewertete Zeitraum ausgewiesen. Zusaetzlich ein
+  7-Tage-Knopf.
+- Die Balken im Prognosediagramm hiessen "Geplante Ladung", zeigen aber
+  auch die Entladung als negativen Wert. Jetzt "Ladung (+) / Entladung
+  (-) pro Stunde".
+
 ## [0.12.3] - 2026-08-15
 
 ### Fixed
