@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.12.5] - 2026-08-15
+
+### Fixed
+- **Luecken im Prognosediagramm.** Bleibt der SOC konstant - etwa
+  stundenlang bei 100% - schreibt Home Assistant keine Zustandsaenderung.
+  Diese Stunden hatten gar keinen Messwert, und im Diagramm entstand ein
+  Loch genau dort, wo der Ladestand am interessantesten ist. Der letzte
+  bekannte Wert wird jetzt fortgeschrieben.
+- **Abends zeigte die Projektion nichts Brauchbares.** Sie deckte nur die
+  Reststunden des Tages ab; nach Sonnenuntergang also nur noch Entladung
+  und "Ladung 0 kWh". Ist die PV-Zeit vorbei, wird jetzt der MORGIGE Tag
+  projiziert - dann steht dort, was tatsaechlich geplant ist.
+- Die Zusammenfassung unter dem Diagramm nennt jetzt, ob heute oder morgen
+  gezeigt wird und bis wann gemessen statt projiziert wurde.
+
 ## [0.12.4] - 2026-08-15
 
 ### Fixed

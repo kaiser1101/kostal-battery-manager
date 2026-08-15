@@ -1217,8 +1217,11 @@ function updateBatteryScheduleChart() {
                 // v0.12.2 - Prognosestrategie liefert eine Tagesprojektion
                 // statt preisbasierter Ladefenster
                 if (scheduleInfo && data.strategie === 'forecast') {
+                    const wann = data.fuer_morgen
+                        ? `Projektion für MORGEN (${data.datum})`
+                        : `Heute · gemessen bis ${data.ab_stunde}:00, danach Projektion`;
                     scheduleInfo.textContent =
-                        `Projektion ab ${data.ab_stunde}:00 · Korridor ${data.corridor_min}\u2013${data.corridor_max} %`
+                        `${wann} · Korridor ${data.corridor_min}\u2013${data.corridor_max} %`
                       + ` · erwarteter Verlauf ${data.min_soc_reached}\u2013${data.max_soc_reached} %`
                       + ` · Ladung ${data.total_charging_kwh} kWh`;
                 } else if (scheduleInfo && !data.success && data.reason) {

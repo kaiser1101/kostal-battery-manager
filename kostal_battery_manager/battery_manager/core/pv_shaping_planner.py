@@ -332,7 +332,82 @@ class PVShapingPlanner:
                 continue
             # Letzter Wert der Stunde gewinnt
             per_hour[ts.astimezone(now.tzinfo).hour] = value
+
+        # Luecken schliessen. Bleibt der SOC konstant - etwa stundenlang bei
+        # 100% - schreibt HA keine Zustandsaenderung, und diese Stunden
+        # haetten gar keinen Wert. Im Diagramm entstuenden Loecher genau
+        # dort, wo der Ladestand am interessantesten ist.
+        if per_hour:
+            letzter = None
+            for hour in range(0, now.hour + 1):
+                if hour in per_hour:
+                    letzter = per_hour[hour]
+                elif letzter is not None:
+                    per_hour[hour] = letzter
         return per_hour
+
+    def _project_tomorrow(self, ha_client, config, current_soc, battery_capacity,
+                          now: datetime, plan: Dict) -> Dict:
+        """
+        Projiziert den morgigen Tag von 0 bis 23 Uhr.
+
+        Der SOC wird zunaechst ueber die Restnacht fortgeschrieben, damit
+        der Startwert um Mitternacht stimmt.
+        """
+        pv_today = self.get_hourly_pv_forecast(ha_client, config)
+        morgen = (now + timedelta(days=1)).date()
+        pv_morgen = self.get_hourly_pv_forecast(ha_client, config, for_date=morgen)
+
+        max_soc = plan['max_soc']
+        min_soc = plan['min_soc']
+        max_charge_kwh = plan['max_charge_power'] / 1000.0
+        soc = current_soc
+
+        def verbrauch(hour, tag):
+            if not self.consumption_learner:
+                return 0.0
+            return self.consumption_learner.get_average_consumption(hour, target_date=tag)
+
+        # Restnacht bis Mitternacht durchrechnen
+        for hour in range(now.hour + 1, 24):
+            bilanz = pv_today.get(hour, 0.0) - verbrauch(hour, now.date())
+            if bilanz < 0:
+                verfuegbar = max(0.0, (soc - min_soc) / 100 * battery_capacity)
+                soc -= min(-bilanz, verfuegbar) / battery_capacity * 100
+
+        hourly_soc = [None] * 24
+        hourly_charging = [None] * 24
+        for hour in range(24):
+            bilanz = pv_morgen.get(hour, 0.0) - verbrauch(hour, morgen)
+            if bilanz > 0:
+                platz = max(0.0, (max_soc - soc) / 100 * battery_capacity)
+                geladen = min(bilanz, max_charge_kwh, platz)
+                soc += geladen / battery_capacity * 100
+                hourly_charging[hour] = round(geladen, 2)
+            else:
+                verfuegbar = max(0.0, (soc - min_soc) / 100 * battery_capacity)
+                entnommen = min(-bilanz, verfuegbar)
+                soc -= entnommen / battery_capacity * 100
+                hourly_charging[hour] = round(-entnommen, 2)
+            hourly_soc[hour] = round(soc, 1)
+
+        werte = [v for v in hourly_soc if v is not None]
+        geladen_gesamt = sum(c for c in hourly_charging if c and c > 0)
+
+        return {
+            'success': True,
+            'strategie': 'forecast',
+            'fuer_morgen': True,
+            'datum': morgen.isoformat(),
+            'hourly_soc': hourly_soc,
+            'hourly_charging': hourly_charging,
+            'corridor_min': min_soc,
+            'corridor_max': max_soc,
+            'min_soc_reached': round(min(werte), 1) if werte else None,
+            'max_soc_reached': round(max(werte), 1) if werte else None,
+            'total_charging_kwh': round(geladen_gesamt, 2),
+            'ab_stunde': 0,
+        }
 
     # ------------------------------------------------------------------
     # Tagesprojektion fuer das Dashboard
@@ -358,6 +433,15 @@ class PVShapingPlanner:
         plan = self.plan(ha_client, config, current_soc, battery_capacity, now=now)
 
         pv_today = self.get_hourly_pv_forecast(ha_client, config)
+
+        # Ist die PV-Zeit des Tages vorbei, zeigt eine Projektion der
+        # Reststunden nichts Brauchbares mehr - es kommt ohnehin keine
+        # Ladung mehr. Abends interessiert der morgige Tag.
+        sunset = self._sunset_hour(pv_today)
+        fuer_morgen = sunset is not None and now.hour > sunset
+        if fuer_morgen:
+            return self._project_tomorrow(ha_client, config, current_soc,
+                                          battery_capacity, now, plan)
         max_soc = plan['max_soc']
         min_soc = plan['min_soc']
         max_charge_kwh = plan['max_charge_power'] / 1000.0
