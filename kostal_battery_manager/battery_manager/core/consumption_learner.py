@@ -677,8 +677,43 @@ class ConsumptionLearner:
             if result and result[0]:
                 return float(result[0])
 
+            # Der Wochentagsfilter ist bei duenner Datenlage schaedlich: mit
+            # 7 Tagen Historie gibt es pro (Stunde, Wochentag) nur EINEN Wert,
+            # und fehlt der, landeten wir beim pauschalen Tagesdurchschnitt -
+            # fuer Nachtstunden voellig falsch. Deshalb zuerst ueber ALLE
+            # Wochentage mitteln, bevor der Fallback greift.
+            if weekday_filter is not None:
+                cursor = conn.execute("""
+                    SELECT AVG(consumption_kwh) FROM (
+                        SELECT consumption_kwh,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY DATE(timestamp), hour
+                                   ORDER BY is_manual ASC, created_at DESC
+                               ) as rn
+                        FROM hourly_consumption WHERE hour = ?
+                    ) WHERE rn = 1
+                """, (hour,))
+                result = cursor.fetchone()
+                if result and result[0]:
+                    logger.debug(f"Stunde {hour}: kein Wert fuer diesen Wochentag, "
+                                 f"nutze Mittel ueber alle Tage")
+                    return float(result[0])
+
             logger.warning(f"No data for hour {hour}, using default {self.default_fallback} kWh")
             return self.default_fallback
+
+    def get_sample_count(self, hour: int) -> int:
+        """Anzahl vorhandener Messwerte fuer eine Stunde (ueber alle Tage)."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    "SELECT COUNT(DISTINCT DATE(timestamp)) FROM hourly_consumption WHERE hour = ?",
+                    (hour,))
+                row = cursor.fetchone()
+                return int(row[0]) if row and row[0] else 0
+        except Exception as e:
+            logger.debug(f"Konnte Stichprobenanzahl fuer Stunde {hour} nicht ermitteln: {e}")
+            return 0
 
     def get_hourly_profile(self, target_date=None) -> Dict[int, float]:
         """

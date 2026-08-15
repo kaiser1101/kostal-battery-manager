@@ -2099,8 +2099,8 @@ def publish_plan_to_ha(plan, readback=None):
             'friendly_name': 'Batteriemanager max. Ladeleistung',
             'unit_of_measurement': 'W', 'device_class': 'power',
             'state_class': 'measurement', 'icon': 'mdi:flash'}),
-        (f'sensor.{prefix}_overnight_need', diag.get('overnight_need_kwh'), {
-            'friendly_name': 'Batteriemanager Nachtbedarf',
+        (f'sensor.{prefix}_bridging_need', diag.get('overnight_need_kwh'), {
+            'friendly_name': 'Batteriemanager Ueberbrueckungsbedarf',
             'unit_of_measurement': 'kWh', 'device_class': 'energy',
             'state_class': 'measurement', 'icon': 'mdi:weather-night'}),
         (f'sensor.{prefix}_tomorrow_shortfall', diag.get('tomorrow_shortfall_kwh'), {

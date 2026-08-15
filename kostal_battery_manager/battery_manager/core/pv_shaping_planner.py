@@ -46,6 +46,7 @@ class PVShapingPlanner:
 
         self.consumption_learner = None
         self.forecast_solar_api = None
+        self.last_overnight_breakdown = []
 
         self.state_path = state_path
         self._state = self._load_state()
@@ -171,8 +172,13 @@ class PVShapingPlanner:
     def calculate_overnight_need_kwh(self, ha_client, config, now: datetime) -> float:
         """
         Verbrauch vom heutigen Sonnenuntergang bis zum morgigen
-        Sonnenaufgang - das ist die Energie, die die Batterie ueber
-        die Nacht tragen muss.
+        Sonnenaufgang - die Energie, die die Batterie ueberbruecken muss.
+
+        ACHTUNG, haeufiges Missverstaendnis: Das ist NICHT der Verbrauch der
+        ruhigen Nachtstunden. Die Spanne umfasst auch die Abendspitze
+        (Kochen, Licht) und die Morgenspitze (Warmwasser, Waermepumpe),
+        bevor die PV wieder nennenswert liefert. Bei 13-15 Stunden Spanne
+        macht das den Grossteil des Werts aus.
         """
         pv_today = self.get_hourly_pv_forecast(ha_client, config)
         pv_tomorrow = self.get_hourly_pv_forecast(
@@ -192,8 +198,28 @@ class PVShapingPlanner:
         night_hours = (24 - sunset) + sunrise_tomorrow
         start = now.replace(hour=sunset, minute=0, second=0, microsecond=0)
 
-        need = self._consumption_between(start, night_hours)
-        logger.debug(f"Overnight need: {need:.2f} kWh ({sunset}:00 -> {sunrise_tomorrow}:00, {night_hours}h)")
+        # Aufschluesselung je Stunde protokollieren. Ohne das ist nicht
+        # erkennbar, ob die Prognose auf echten Messwerten beruht oder auf
+        # dem pauschalen Fallback - und ein zu hoher Nachtbedarf hebt den
+        # SOC-Deckel unnoetig an, womit der Hauptnutzen verloren geht.
+        need = 0.0
+        breakdown = []
+        cursor = start
+        for _ in range(night_hours):
+            cursor = cursor + timedelta(hours=1)
+            value = self.consumption_learner.get_average_consumption(
+                cursor.hour, target_date=cursor.date()) if self.consumption_learner else 0.0
+            samples = (self.consumption_learner.get_sample_count(cursor.hour)
+                       if self.consumption_learner and
+                          hasattr(self.consumption_learner, 'get_sample_count') else None)
+            need += value
+            breakdown.append({'hour': cursor.hour, 'kwh': round(value, 3), 'samples': samples})
+
+        self.last_overnight_breakdown = breakdown
+        detail = ' '.join(f"{b['hour']:02d}h={b['kwh']:.2f}" for b in breakdown)
+        logger.info(f"Ueberbrueckungsbedarf {need:.2f} kWh (Sonnenuntergang {sunset}:00 -> "
+                    f"Sonnenaufgang {sunrise_tomorrow}:00, "
+                    f"{night_hours}h) | {detail}")
         return need
 
     def calculate_tomorrow_shortfall_kwh(self, ha_client, config, now: datetime) -> float:
@@ -345,7 +371,7 @@ class PVShapingPlanner:
             # SOC, der diese Reserve zusaetzlich zur Entladegrenze traegt
             target_soc = self.soc_corridor_min + (reserve_kwh / battery_capacity) * 100
             if shortfall_kwh <= 0:
-                cap_reason = (f'morgen deckt PV den Verbrauch - nur Nachtbedarf '
+                cap_reason = (f'morgen deckt PV den Verbrauch - nur Ueberbrueckung '
                               f'{overnight_kwh:.1f} kWh noetig')
             else:
                 cap_reason = (f'morgen fehlen {shortfall_kwh:.1f} kWh - Reserve '
@@ -413,6 +439,7 @@ class PVShapingPlanner:
                 'tomorrow_shortfall_kwh': round(shortfall_kwh, 2) if shortfall_kwh is not None else None,
                 'sunset_hour': sunset,
                 'pv_today_kwh': round(sum(pv_today.values()), 2) if pv_today else 0.0,
+                'overnight_breakdown': self.last_overnight_breakdown,
             },
         })
         return plan

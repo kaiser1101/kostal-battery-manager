@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.11.4] - 2026-08-15
+
+### Fixed
+- **Verbrauchsprognose war bei duenner Datenlage unbrauchbar.**
+  `get_average_consumption()` filtert nach Wochentag. Bei 7 Tagen Historie
+  gibt es damit pro (Stunde, Wochentag) genau EINEN Messwert - es wird
+  nichts gemittelt, und fehlt der Wert, griff sofort der pauschale
+  Tagesdurchschnitt. Fuer Nachtstunden ist der um ein Vielfaches zu hoch.
+  Jetzt wird zuerst ueber alle Wochentage gemittelt, bevor der Fallback
+  greift.
+
+### Added
+- **Stundenweise Aufschluesselung des Ueberbrueckungsbedarfs** im Log und
+  in den Plan-Diagnosen. Ohne sie war nicht erkennbar, ob die Prognose auf
+  Messwerten beruht oder auf dem Fallback - und ein zu hoher Wert hebt den
+  SOC-Deckel unnoetig an, womit der Hauptnutzen verloren geht.
+- `get_sample_count()` im Learner: Anzahl Messwerte je Stunde.
+
+### Changed
+- **"Nachtbedarf" heisst jetzt "Ueberbrueckungsbedarf".** Der Wert umfasst
+  die Spanne von Sonnenuntergang bis Sonnenaufgang und damit auch die
+  Abend- und Morgenspitze - nicht nur die ruhigen Nachtstunden. Der alte
+  Begriff legte das Gegenteil nahe.
+  Entitaet: `sensor.<prefix>_overnight_need` -> `sensor.<prefix>_bridging_need`
+
 ## [0.11.3] - 2026-08-15
 
 ### Fixed
