@@ -845,10 +845,29 @@ def api_effectiveness():
 
     start = datetime.now() - timedelta(days=days)
     history = ha_client.get_history(sensor, start)
+
     if not history:
-        return jsonify({'success': False,
-                        'error': f'Keine Historie fuer {sensor}. HAs Recorder haelt '
-                                 f'standardmaessig nur rund 10 Tage vor.'}), 200
+        # Genauer hinschauen, statt pauschal auf den Recorder zu verweisen:
+        # existiert die Entitaet ueberhaupt, und gibt es kuerzere Zeitraeume?
+        current = ha_client.get_state(sensor)
+        kurz = ha_client.get_history(sensor, datetime.now() - timedelta(days=2))
+
+        if current is None:
+            grund = (f'Die Entitaet {sensor} existiert nicht. Pruefe den Namen unter '
+                     f'Entwicklerwerkzeuge -> Zustaende.')
+        elif kurz:
+            grund = (f'Fuer {days} Tage liegt nichts vor, fuer die letzten 2 Tage aber '
+                     f'{len(kurz)} Eintraege. Der Recorder haelt offenbar weniger lange '
+                     f'vor - versuche einen kuerzeren Zeitraum.')
+        else:
+            grund = (f'{sensor} liefert aktuell "{current}", hat aber keine aufgezeichnete '
+                     f'Historie. Wahrscheinlich ist die Entitaet vom Recorder ausgeschlossen '
+                     f'(recorder: exclude in configuration.yaml) oder die Aufzeichnung wurde '
+                     f'erst kuerzlich aktiviert.')
+
+        return jsonify({'success': False, 'error': grund,
+                        'sensor': sensor, 'aktueller_wert': current,
+                        'eintraege_2_tage': len(kurz)}), 200
 
     cmin = float(config.get('soc_corridor_min', 30))
     cmax = float(config.get('soc_corridor_max', 80))
@@ -1228,8 +1247,22 @@ def api_battery_schedule():
     # v0.10.0 - Preisbasierter Tagesplan. In der forecast-Strategie
     # bedeutungslos; der Endpunkt wuerde sonst Tibber-Abfragen und
     # "Ladefenster" berechnen, die nie ausgefuehrt werden.
+    # v0.12.2 - In der forecast-Strategie liefert der Planer seine eigene
+    # Tagesprojektion. Vorher blieb das Diagramm leer, weil der
+    # preisbasierte Zweig hier abgeschaltet ist.
     if config.get('charging_strategy', 'forecast') != 'price':
-        return jsonify({'success': False, 'reason': 'not_applicable_in_forecast_strategy'}), 200
+        if not (pv_shaping_planner and ha_client):
+            return jsonify({'success': False, 'reason': 'Planer nicht verfuegbar'}), 200
+        try:
+            soc = read_soc(ha_client, config, fallback=app_state['battery'].get('soc'))
+            if soc is None:
+                return jsonify({'success': False, 'reason': 'SOC unbekannt'}), 200
+            return jsonify(pv_shaping_planner.project_day(
+                ha_client=ha_client, config=config, current_soc=soc,
+                battery_capacity=config.get('battery_capacity', 10.6)))
+        except Exception as e:
+            logger.error(f"Tagesprojektion fehlgeschlagen: {e}", exc_info=True)
+            return jsonify({'success': False, 'reason': str(e)}), 200
     try:
         # Get current SOC
         current_soc = app_state['battery']['soc']

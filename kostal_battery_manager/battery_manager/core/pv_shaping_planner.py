@@ -299,6 +299,121 @@ class PVShapingPlanner:
     # ------------------------------------------------------------------
     # Hauptberechnung
     # ------------------------------------------------------------------
+    def _measured_soc_today(self, ha_client, config, now: datetime) -> Dict[int, float]:
+        """
+        Gemessener SOC je Stunde seit Mitternacht.
+
+        Rein fuer die Darstellung. Faellt die Historie aus, bleibt das
+        Diagramm eben ab der aktuellen Stunde leer - die Steuerung haengt
+        nicht davon ab.
+        """
+        sensor = config.get('battery_soc_sensor')
+        if not ha_client or not sensor:
+            return {}
+        try:
+            midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            history = ha_client.get_history(sensor, midnight)
+        except Exception as e:
+            logger.debug(f"SOC-Historie fuer die Projektion nicht verfuegbar: {e}")
+            return {}
+
+        per_hour = {}
+        for entry in history or []:
+            raw = entry.get('state')
+            if raw is None or str(raw).strip().lower() in ('', 'unavailable', 'unknown'):
+                continue
+            stamp = entry.get('last_changed') or entry.get('last_updated')
+            if not stamp:
+                continue
+            try:
+                ts = datetime.fromisoformat(str(stamp).replace('Z', '+00:00'))
+                value = float(raw)
+            except (ValueError, TypeError):
+                continue
+            # Letzter Wert der Stunde gewinnt
+            per_hour[ts.astimezone(now.tzinfo).hour] = value
+        return per_hour
+
+    # ------------------------------------------------------------------
+    # Tagesprojektion fuer das Dashboard
+    # ------------------------------------------------------------------
+    def project_day(self, ha_client, config, current_soc: float,
+                    battery_capacity: float, now: Optional[datetime] = None) -> Dict:
+        """
+        Schaetzt den SOC-Verlauf des heutigen Tages, Stunde fuer Stunde.
+
+        Reine Vorschau fuer das Dashboard - steuert nichts. Fuer bereits
+        vergangene Stunden gibt es keine Rueckrechnung; sie bleiben leer,
+        damit nichts vorgetaeuscht wird, was nicht gemessen wurde.
+
+        Bilanz je Stunde: PV-Prognose minus gelernter Verbrauch. Ueberschuss
+        laedt die Batterie (begrenzt durch Ladeleistung und SOC-Deckel),
+        Fehlbetrag entlaedt sie (begrenzt durch die SOC-Untergrenze).
+
+        Returns:
+            dict mit hourly_soc, hourly_charging (je 24 Werte, None fuer
+            vergangene Stunden) und Kennzahlen.
+        """
+        now = now or datetime.now().astimezone()
+        plan = self.plan(ha_client, config, current_soc, battery_capacity, now=now)
+
+        pv_today = self.get_hourly_pv_forecast(ha_client, config)
+        max_soc = plan['max_soc']
+        min_soc = plan['min_soc']
+        max_charge_kwh = plan['max_charge_power'] / 1000.0
+
+        hourly_soc = [None] * 24
+        hourly_charging = [None] * 24
+
+        # Vergangene Stunden mit GEMESSENEN Werten fuellen, sofern die
+        # Historie vorliegt. Sonst zeigte das Diagramm abends fast nichts,
+        # weil die Projektion erst ab der aktuellen Stunde beginnt.
+        measured = self._measured_soc_today(ha_client, config, now)
+        for hour, value in measured.items():
+            if hour < now.hour:
+                hourly_soc[hour] = round(value, 1)
+
+        soc = current_soc
+        hourly_soc[now.hour] = round(soc, 1)
+        hourly_charging[now.hour] = 0.0
+
+        for hour in range(now.hour + 1, 24):
+            pv = pv_today.get(hour, 0.0)
+            use = (self.consumption_learner.get_average_consumption(hour, target_date=now.date())
+                   if self.consumption_learner else 0.0)
+            balance = pv - use
+
+            if balance > 0:
+                # Laden, begrenzt durch Ladeleistung und Deckel
+                room_kwh = max(0.0, (max_soc - soc) / 100 * battery_capacity)
+                charged = min(balance, max_charge_kwh, room_kwh)
+                soc += charged / battery_capacity * 100
+                hourly_charging[hour] = round(charged, 2)
+            else:
+                # Entladen, begrenzt durch die Untergrenze
+                available_kwh = max(0.0, (soc - min_soc) / 100 * battery_capacity)
+                drawn = min(-balance, available_kwh)
+                soc -= drawn / battery_capacity * 100
+                hourly_charging[hour] = round(-drawn, 2)
+
+            hourly_soc[hour] = round(soc, 1)
+
+        werte = [v for v in hourly_soc if v is not None]
+        geladen = sum(c for c in hourly_charging if c and c > 0)
+
+        return {
+            'success': True,
+            'strategie': 'forecast',
+            'hourly_soc': hourly_soc,
+            'hourly_charging': hourly_charging,
+            'corridor_min': min_soc,
+            'corridor_max': max_soc,
+            'min_soc_reached': round(min(werte), 1) if werte else None,
+            'max_soc_reached': round(max(werte), 1) if werte else None,
+            'total_charging_kwh': round(geladen, 2),
+            'ab_stunde': now.hour,
+        }
+
     def plan(self, ha_client, config, current_soc: float, battery_capacity: float,
              now: Optional[datetime] = None) -> Dict:
         """

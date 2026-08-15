@@ -1209,7 +1209,16 @@ function updateBatteryScheduleChart() {
 
                 // Update schedule info summary
                 const scheduleInfo = document.getElementById('schedule-info');
-                if (scheduleInfo && data.charging_windows) {
+                // v0.12.2 - Prognosestrategie liefert eine Tagesprojektion
+                // statt preisbasierter Ladefenster
+                if (scheduleInfo && data.strategie === 'forecast') {
+                    scheduleInfo.textContent =
+                        `Projektion ab ${data.ab_stunde}:00 · Korridor ${data.corridor_min}\u2013${data.corridor_max} %`
+                      + ` · erwarteter Verlauf ${data.min_soc_reached}\u2013${data.max_soc_reached} %`
+                      + ` · Ladung ${data.total_charging_kwh} kWh`;
+                } else if (scheduleInfo && !data.success && data.reason) {
+                    scheduleInfo.textContent = 'Keine Projektion: ' + data.reason;
+                } else if (scheduleInfo && data.charging_windows) {
                     const windows = data.charging_windows;
                     const totalKwh = data.total_charging_kwh || 0;
                     const minSoc = data.min_soc_reached || 0;

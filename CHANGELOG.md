@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.12.2] - 2026-08-15
+
+### Fixed
+- **Diagramm "Batterie-Prognose" blieb leer.** Seit v0.10.4 liefert
+  `/api/battery_schedule` in der forecast-Strategie keine Daten mehr, weil
+  der preisbasierte Zweig dort abgeschaltet ist. Das Diagramm fiel auf
+  Nullwerte zurueck. Jetzt liefert der Planer eine eigene Tagesprojektion.
+- Die Wirkungskontrolle meldete pauschal "Keine Historie ... Recorder haelt
+  nur 10 Tage vor". Jetzt wird unterschieden, ob die Entitaet gar nicht
+  existiert, ob nur der Zeitraum zu lang war, oder ob die Entitaet vom
+  Recorder ausgeschlossen ist.
+
+### Added
+- **Tagesprojektion** (`PVShapingPlanner.project_day()`): schaetzt den
+  SOC-Verlauf stundenweise aus PV-Prognose und gelerntem Verbrauch,
+  begrenzt durch Korridor und Ladeleistung. Zeigt damit, wo der SOC-Deckel
+  greift.
+- Vergangene Stunden werden mit GEMESSENEN Werten aus der Historie
+  gefuellt. Ohne das war das Diagramm bei einem Aufruf am Abend fast leer,
+  weil die Projektion erst ab der aktuellen Stunde beginnt.
+
 ## [0.12.1] - 2026-08-15
 
 ### Fixed
