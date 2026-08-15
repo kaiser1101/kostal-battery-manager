@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.10.2] - 2026-08-15
+
+### Fixed
+- **Forecast.Solar API lieferte nie Daten.** Zwei Fehler zusammen:
+  - Der Parser erwartete `result.watt_hours`; die API liefert `result`
+    als flaches `{Zeitstempel: Wh}`
+  - Verwendet wurde `estimate/watthours` (ueber den Tag KUMULIERT) statt
+    `estimate/watthours/period` (Werte pro Stunde)
+- **Prognose fuer morgen war die von heute.** `get_hourly_forecast()`
+  ignorierte das Zieldatum, der PV-Shaping-Planer bekam fuer "morgen" die
+  heutige Kurve - der dynamische SOC-Deckel rechnete damit falsch.
+- Der Cache wurde nach dem Abruf ueberschrieben und verlor die
+  Tagesaufteilung, wodurch jede Abfrage fuer morgen einen neuen API-Call
+  ausgeloest haette.
+
+### Changed
+- **API-Key ist jetzt optional.** Ohne Key wird die oeffentliche
+  Schnittstelle genutzt (Key-Segment entfaellt in der URL). Damit ist die
+  Stundenprognose ohne Registrierung verfuegbar; ein Abruf deckt heute und
+  morgen ab und bleibt im Ratelimit.
+
 ## [0.10.1] - 2026-08-15
 
 ### Fixed

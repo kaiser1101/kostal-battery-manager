@@ -56,33 +56,46 @@ class ForecastSolarAPI:
         lon = str(self.longitude).replace('.', ',')
         kwp_str = str(kwp).replace('.', ',')
 
-        url = (f"{self.base_url}/{self.api_key}/{endpoint}/"
+        # Ohne Key laeuft die oeffentliche Schnittstelle (das Key-Segment
+        # entfaellt dann komplett). Sie ist auf wenige Abfragen pro Stunde
+        # begrenzt, was durch den 15-Minuten-Cache eingehalten wird.
+        prefix = f"/{self.api_key}" if self.api_key else ""
+
+        url = (f"{self.base_url}{prefix}/{endpoint}/"
                f"{lat}/{lon}/{declination}/{azimuth}/{kwp_str}")
 
         return url
 
     def get_hourly_forecast(self,
                            planes: list,
-                           days: int = 1) -> Dict[int, float]:
+                           days: int = 1,
+                           for_date=None) -> Dict[int, float]:
         """
-        Get hourly solar production forecast for today
+        Get hourly solar production forecast.
 
         Args:
             planes: List of dicts with 'declination', 'azimuth', 'kwp'
                    e.g., [{'declination': 22, 'azimuth': 45, 'kwp': 8.96}]
-            days: Number of days to forecast (default: 1 = today only)
+            days: unbenutzt, aus Kompatibilitaetsgruenden erhalten
+            for_date: Zieldatum. None = heute. Die API liefert heute UND
+                      morgen, deshalb ist die Prognose fuer morgen ohne
+                      zusaetzlichen Abruf verfuegbar.
 
         Returns:
             dict: {hour: kwh_forecast} for each hour (0-23)
         """
-        # Check cache first
+        target_date = for_date or datetime.now().astimezone().date()
+
+        # Cache haelt die Rohdaten je Datum - so kostet die Abfrage fuer
+        # morgen keinen zusaetzlichen API-Call (Ratelimit ohne Key!)
         if self._is_cache_valid():
-            logger.debug("Using cached forecast.solar data")
-            return self._cache.get('hourly_forecast', {})
+            cached = self._cache.get('by_date', {}).get(str(target_date))
+            if cached is not None:
+                logger.debug(f"Using cached forecast.solar data for {target_date}")
+                return cached
 
         try:
-            today = datetime.now().astimezone().date()
-            hourly_forecast = {}
+            by_date = {}
 
             # Fetch forecast for each plane and combine
             for i, plane in enumerate(planes):
@@ -91,8 +104,11 @@ class ForecastSolarAPI:
                            f"tilt={plane['declination']}°, "
                            f"kWp={plane['kwp']}")
 
+                # 'watthours/period' liefert Werte PRO STUNDE.
+                # 'watthours' waere der ueber den Tag kumulierte Wert -
+                # damit rechnete diese Klasse frueher falsch.
                 url = self._build_url(
-                    endpoint='estimate/watthours',
+                    endpoint='estimate/watthours/period',
                     declination=plane['declination'],
                     azimuth=plane['azimuth'],
                     kwp=plane['kwp']
@@ -109,40 +125,38 @@ class ForecastSolarAPI:
 
                 data = response.json()
 
-                # Extract watt_hours data
-                if 'result' in data and 'watt_hours' in data['result']:
-                    watt_hours = data['result']['watt_hours']
-                    logger.debug(f"Plane {i+1}: received {len(watt_hours)} hourly values")
+                # Die API liefert result als flaches {Zeitstempel: Wh}.
+                result = data.get('result')
+                if isinstance(result, dict) and result:
+                    logger.debug(f"Plane {i+1}: received {len(result)} hourly values")
 
-                    for timestamp_str, wh_value in watt_hours.items():
+                    for timestamp_str, wh_value in result.items():
                         try:
-                            # Parse timestamp (format: "2025-11-05 14:00:00")
                             dt = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
-
-                            # Only process today's data (or up to 'days' ahead)
-                            if dt.date() == today:
-                                hour = dt.hour
-                                kwh = float(wh_value) / 1000.0  # Wh to kWh
-
-                                # Combine multiple planes
-                                hourly_forecast[hour] = hourly_forecast.get(hour, 0.0) + kwh
-
-                        except (ValueError, TypeError) as e:
-                            logger.warning(f"Error parsing timestamp {timestamp_str}: {e}")
+                        except (ValueError, TypeError):
+                            logger.warning(f"Error parsing timestamp {timestamp_str}")
                             continue
+
+                        day = by_date.setdefault(str(dt.date()), {})
+                        day[dt.hour] = day.get(dt.hour, 0.0) + float(wh_value) / 1000.0
                 else:
-                    logger.warning(f"Plane {i+1}: No 'watt_hours' in API response")
-                    logger.debug(f"Response keys: {list(data.get('result', {}).keys())}")
+                    logger.warning(f"Plane {i+1}: unerwartete API-Antwort, "
+                                   f"'result' fehlt oder ist leer")
 
-            if hourly_forecast:
-                logger.info(f"✓ Forecast.Solar: Retrieved {len(hourly_forecast)} hours from API")
-                logger.debug(f"Hourly forecast (kWh): {hourly_forecast}")
+            self._cache['by_date'] = by_date
+            hourly_forecast = by_date.get(str(target_date), {})
 
-                # Update cache
-                self._cache = {'hourly_forecast': hourly_forecast}
+            if by_date:
+                # Zeitstempel setzen, NICHT self._cache ersetzen - sonst
+                # ginge die Tagesaufteilung verloren und die Prognose fuer
+                # morgen wuerde bei jedem Aufruf neu abgerufen.
                 self._cache_timestamp = datetime.now()
-            else:
-                logger.warning("No hourly forecast data retrieved from Forecast.Solar API")
+                logger.info(f"✓ Forecast.Solar: {sum(len(v) for v in by_date.values())} Stundenwerte "
+                            f"fuer {len(by_date)} Tage abgerufen")
+                logger.debug(f"Hourly forecast for {target_date} (kWh): {hourly_forecast}")
+
+            if not hourly_forecast:
+                logger.warning(f"Keine Stundenprognose fuer {target_date} verfuegbar")
 
             return hourly_forecast
 

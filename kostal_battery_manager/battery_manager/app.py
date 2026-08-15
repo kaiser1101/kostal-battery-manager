@@ -290,7 +290,9 @@ try:
             latitude = config.get('forecast_solar_latitude')
             longitude = config.get('forecast_solar_longitude')
 
-            if api_key and latitude is not None and longitude is not None:
+            # v0.10.2 - Key ist optional: ohne Key wird die oeffentliche
+            # Schnittstelle genutzt. Nur Koordinaten sind zwingend.
+            if latitude and longitude:
                 forecast_solar_api = ForecastSolarAPI(api_key, latitude, longitude)
 
                 # Build planes list from individual roof configurations
@@ -300,7 +302,7 @@ try:
                 roof1_dec = config.get('forecast_solar_roof1_declination')
                 roof1_azi = config.get('forecast_solar_roof1_azimuth')
                 roof1_kwp = config.get('forecast_solar_roof1_kwp')
-                if roof1_dec is not None and roof1_azi is not None and roof1_kwp is not None:
+                if roof1_dec is not None and roof1_azi is not None and roof1_kwp:
                     planes.append({
                         'declination': roof1_dec,
                         'azimuth': roof1_azi,
@@ -312,7 +314,7 @@ try:
                 roof2_dec = config.get('forecast_solar_roof2_declination')
                 roof2_azi = config.get('forecast_solar_roof2_azimuth')
                 roof2_kwp = config.get('forecast_solar_roof2_kwp')
-                if roof2_dec is not None and roof2_azi is not None and roof2_kwp is not None:
+                if roof2_dec is not None and roof2_azi is not None and roof2_kwp:
                     planes.append({
                         'declination': roof2_dec,
                         'azimuth': roof2_azi,
@@ -331,8 +333,9 @@ try:
 
                 add_log('INFO', f'Forecast.Solar Professional API enabled (lat={latitude}, lon={longitude}, {len(planes)} roofs)')
             else:
-                logger.warning("Forecast.Solar API enabled but missing configuration (api_key, latitude, longitude)")
-                add_log('WARNING', 'Forecast.Solar API: Missing configuration parameters')
+                logger.warning("Forecast.Solar API aktiviert, aber Koordinaten fehlen "
+                               "(forecast_solar_latitude / forecast_solar_longitude)")
+                add_log('WARNING', 'Forecast.Solar API: Koordinaten fehlen')
 
         except Exception as e:
             logger.error(f"Error initializing Forecast.Solar API: {e}")

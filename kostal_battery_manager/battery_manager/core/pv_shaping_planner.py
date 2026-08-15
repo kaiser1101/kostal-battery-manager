@@ -95,18 +95,23 @@ class PVShapingPlanner:
     # ------------------------------------------------------------------
     def get_hourly_pv_forecast(self, ha_client, config, for_date=None) -> Dict[int, float]:
         """Liefert {Stunde: kWh} fuer heute (for_date=None) oder ein Datum."""
+        target_date = for_date or datetime.now().astimezone().date()
+
         if self.forecast_solar_api and config.get('enable_forecast_solar_api', False):
             planes = config.get('forecast_solar_planes', [])
             if planes:
                 try:
-                    hourly = self.forecast_solar_api.get_hourly_forecast(planes)
+                    # for_date durchreichen - sonst kaeme fuer "morgen" die
+                    # Kurve von heute zurueck und der SOC-Deckel waere falsch.
+                    hourly = self.forecast_solar_api.get_hourly_forecast(
+                        planes, for_date=target_date
+                    )
                     if hourly:
                         return hourly
                 except Exception as e:
                     logger.error(f"Forecast.Solar API error: {e}, falling back to sensors")
 
         hourly_forecast = {}
-        target_date = for_date or datetime.now().astimezone().date()
         for sensor_key in ('pv_production_today_roof1', 'pv_production_today_roof2'):
             sensor = config.get(sensor_key)
             if not sensor:
