@@ -138,6 +138,18 @@ schema:
   battery_capacity: float(1.0,100.0)
   log_level: list(debug|info|warning|error)
   control_interval: int(10,300)
+  
+    # v0.10.0 - Charging Strategy
+  charging_strategy: forecast
+
+  # Forecast-based Evening Top-up
+  soc_corridor_min: 30
+  soc_corridor_max: 80
+  soc_hard_safety_min: 15
+  pv_forecast_safety_margin: 0.8
+  pv_dropoff_threshold: 0.05
+  escalation_days: 2
+  escalation_soc_boost: 15
 
   # Tibber Integration
   enable_tibber_optimization: bool
