@@ -146,11 +146,29 @@ def load_config():
 config = load_config()
 
 
+_previous_sigterm_handler = None
+
+
 def _shutdown_handler(signum, frame):
-    """Gunicorn/HA beenden per SIGTERM - Grenzen vorher freigeben."""
+    """
+    SIGTERM: Grenzen freigeben, dann an gunicorn weiterreichen.
+
+    Wichtig: NICHT selbst SystemExit werfen. Gunicorn hat einen eigenen
+    SIGTERM-Handler fuer das geordnete Beenden der Worker; wuerden wir ihn
+    ersetzen, braeche das laufende Anfragen ab und produzierte einen
+    Traceback im Log.
+    """
     logger.info(f"Signal {signum} empfangen, gebe Grenzwerte frei...")
-    release_limits_on_shutdown()
-    raise SystemExit(0)
+    try:
+        release_limits_on_shutdown()
+    except Exception as e:
+        logger.error(f"Freigabe beim Beenden fehlgeschlagen: {e}")
+
+    if callable(_previous_sigterm_handler):
+        _previous_sigterm_handler(signum, frame)
+    elif _previous_sigterm_handler == signal.SIG_DFL:
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
 
 # Global state
 app_state = {
@@ -2386,8 +2404,11 @@ controller_thread.start()
 # Home Assistant beendet Add-ons per SIGTERM, gunicorn reicht das durch.
 atexit.register(release_limits_on_shutdown)
 try:
+    # Bisherigen Handler merken, damit wir ihn nach unserem Aufraeumen
+    # aufrufen koennen statt ihn zu verdraengen.
+    _previous_sigterm_handler = signal.getsignal(signal.SIGTERM)
     signal.signal(signal.SIGTERM, _shutdown_handler)
-except ValueError:
+except (ValueError, OSError):
     # In einem Nicht-Haupt-Thread nicht moeglich; atexit greift trotzdem
     logger.debug("SIGTERM-Handler konnte nicht registriert werden")
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.2] - 2026-08-15
+
+### Fixed
+- Der SIGTERM-Handler ersetzte den von gunicorn, statt sich einzureihen.
+  Sichtbar als `SystemExit: 0`-Traceback im Log beim Beenden. Das umging
+  gunicorns geordnetes Herunterfahren der Worker. Jetzt wird nach dem
+  Aufraeumen der vorherige Handler aufgerufen.
+
 ## [0.11.1] - 2026-08-15
 
 ### Added
