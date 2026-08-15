@@ -40,7 +40,7 @@ Fällt der SOC unter `soc_hard_safety_min`, wird das **Entladen gesperrt** (Regi
 - Home Assistant OS oder Supervised
 - Kostal Plenticore Plus, Firmware 01.30.x oder neuer
 - Modbus TCP am Wechselrichter aktiviert
-- PV-Prognose: Forecast.Solar (Sensoren oder Professional API)
+- PV-Prognose: Forecast.Solar (API ohne Key nutzbar, siehe unten)
 - Verbrauchssensor für das Verbrauchslernen
 
 ## 🚀 Installation
@@ -52,6 +52,28 @@ Fällt der SOC unter `soc_hard_safety_min`, wird das **Entladen gesperrt** (Regi
 3. Konfigurieren (siehe unten), speichern, starten
 
 ## ⚙️ Inbetriebnahme
+
+### Schritt 0: PV-Prognose sicherstellen
+
+**Ohne stündliche PV-Prognose bewirkt das Add-on nichts** — keine Drosselung, kein SOC-Deckel, keine Kalibrierung. Der einfachste zuverlässige Weg ist der direkte API-Zugriff; ein Key ist seit v0.10.2 **nicht** nötig:
+
+```yaml
+enable_forecast_solar_api: true
+forecast_solar_api_key: ''           # leer = öffentliche API
+forecast_solar_latitude: 48.2085     # deine Koordinaten
+forecast_solar_longitude: 16.3721
+forecast_solar_roof1_declination: 42
+forecast_solar_roof1_azimuth: 0      # 0=Süd, 90=West, -90=Ost
+forecast_solar_roof1_kwp: 5.1
+forecast_solar_roof2_kwp: 0          # 0 = nur eine Dachfläche
+```
+
+Im Log muss danach stehen:
+```
+✓ Forecast.Solar: 30 Stundenwerte fuer 2 Tage abgerufen
+```
+
+Der sensorbasierte Fallback (`pv_production_today_roof1/2` mit Attribut `wh_hours`) funktioniert nur mit älteren Versionen der HA-Integration. Details in [CONFIGURATION.md](CONFIGURATION.md).
 
 ### Schritt 1: Im Dry-Run starten
 
@@ -98,6 +120,8 @@ Erst wenn die Logs plausibel aussehen: `dry_run: false`. Danach zeigt das Dashbo
 | `calibration_interval_days` | 28 | Abstand der Kalibrierladungen, 0 = aus |
 | `calibration_min_pv_kwh` | 15.0 | Kalibrierung nur an Tagen mit dieser PV-Prognose |
 | `pv_forecast_safety_margin` | 0.8 | Anteil der PV-Prognose, dem vertraut wird |
+| `enable_forecast_solar_api` | `false` | Direkter API-Zugriff — **empfohlen**, siehe Schritt 0 |
+| `forecast_solar_api_key` | `''` | Optional. Leer = öffentliche API |
 
 ### Verbrauchslernen
 

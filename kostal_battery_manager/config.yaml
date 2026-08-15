@@ -1,5 +1,5 @@
 name: Kostal Battery Manager edited by Phil
-version: "0.10.2"
+version: "0.10.3"
 slug: kostal_battery_manager
 description: "description: Intelligente Batteriesteuerung für Kostal Plenticore Plus mit PV-Prognose, Verbrauchslernen, intelligenter SOC-Optimierung und bedarfsgerechter Batterieladung"
 url: "https://github.com/kaiser1101/kostal-battery-manager.git"
@@ -59,8 +59,10 @@ options:
   pv_production_tomorrow_roof2: "sensor.energy_production_tomorrow_roof2"
   pv_next_hour_roof1: "sensor.energy_next_hour_roof1"
   pv_next_hour_roof2: "sensor.energy_next_hour_roof2"
-  # v0.9.2 - Forecast.Solar Professional API (replaces sensor-based PV forecast)
-  # Enable this for accurate hourly PV forecasts with your Professional subscription
+  # Forecast.Solar API - WICHTIGSTE Datenquelle der forecast-Strategie.
+  # Ohne stuendliche Prognose bewirkt das Add-on nichts.
+  # Der API-Key ist seit v0.10.2 OPTIONAL: leer = oeffentliche Schnittstelle.
+  # Zwingend sind nur die Koordinaten.
   enable_forecast_solar_api: false
   forecast_solar_api_key: ""
   forecast_solar_latitude: 0.0

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.10.3] - 2026-08-15
+
+### Documentation
+- README und CONFIGURATION.md um die Forecast.Solar-Einrichtung ergaenzt:
+  keyless API-Nutzung, warum der sensorbasierte Fallback mit neueren
+  Versionen der HA-Integration nicht mehr funktioniert, und dass ohne
+  stuendliche Prognose die gesamte Strategie wirkungslos bleibt
+- Neuer "Schritt 0" in der Inbetriebnahme, vor dem Dry-Run
+- Kommentar direkt an der Option in config.yaml
+
 ## [0.10.2] - 2026-08-15
 
 ### Fixed

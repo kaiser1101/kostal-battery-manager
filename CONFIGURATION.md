@@ -106,21 +106,37 @@ Niedriger = konservativer = mehr Reserve = höherer SOC-Deckel.
 
 Ab welchem Bruchteil des Tagesmaximums eine Stunde noch als „PV-Stunde" gilt. Bestimmt die erkannten Sonnenauf- und -untergangszeiten.
 
-### Forecast.Solar
+### Forecast.Solar — die wichtigste Datenquelle
 
-Entweder über HA-Sensoren (`pv_production_today_roof1/2` mit `wh_hours`-Attribut) oder über die Professional API:
+**Ohne stündliche PV-Prognose ist die gesamte Strategie wirkungslos.** Es gibt dann keine Drosselung, keinen SOC-Deckel und keine Kalibrierung — das Add-on läuft, tut aber nichts. Deshalb lohnt es sich, diesen Abschnitt sorgfältig zu prüfen.
+
+**Empfohlen: direkter API-Zugriff.** Seit v0.10.2 ist der API-Key **optional** — ohne Key wird die öffentliche Schnittstelle genutzt:
 
 ```yaml
 enable_forecast_solar_api: true
-forecast_solar_api_key: "dein_key"
-forecast_solar_latitude: 48.2
-forecast_solar_longitude: 16.4
-forecast_solar_roof1_declination: 30    # Dachneigung 0-90°
-forecast_solar_roof1_azimuth: 0         # 0=Süd, 90=West, -90=Ost
-forecast_solar_roof1_kwp: 5.5
+forecast_solar_api_key: ''              # leer lassen = öffentliche API
+forecast_solar_latitude: 48.2085
+forecast_solar_longitude: 16.3721
+forecast_solar_roof1_declination: 42    # Dachneigung 0-90°
+forecast_solar_roof1_azimuth: 0         # 0=Süd, 90=West, -90=Ost, ±180=Nord
+forecast_solar_roof1_kwp: 5.1
+forecast_solar_roof2_declination: 42    # zweite Fläche, sonst kWp auf 0
+forecast_solar_roof2_azimuth: 0
+forecast_solar_roof2_kwp: 2.5
 ```
 
-Die API liefert stündliche Werte und damit deutlich brauchbarere Prognosen als reine Tagessummen.
+Zwingend sind nur **Koordinaten**; fehlen sie, bleibt die API aus. Ein Abruf deckt **heute und morgen** ab und wird 15 Minuten zwischengespeichert — das hält die freie Nutzung im Ratelimit. Ein Key erhöht nur das Limit, die Daten sind dieselben.
+
+**Fallback: HA-Sensoren.** Alternativ liest das Add-on `pv_production_today_roof1/2` und erwartet dort ein Attribut `wh_hours` mit Stundenwerten.
+
+> ⚠️ Neuere Versionen der HA-Forecast.Solar-Integration stellen dieses Attribut **nicht mehr** bereit — die Stundenwerte liegen dort nur noch im Energie-Dashboard. Im Log erscheint dann:
+> ```
+> Roof1 sensor sensor.energy_production_today has no 'wh_hours' attribute
+> No hourly PV forecast data available
+> ```
+> In dem Fall führt kein Weg an der API vorbei. Wechselrichter-Sensoren (gemessene Erträge) funktionieren hier grundsätzlich nicht — das sind Messwerte, keine Prognose.
+
+**Mehrere Dachflächen:** Jede Fläche braucht eigene Neigung, Ausrichtung und kWp. Nur wenn die Geometrie wirklich abweicht, entstehen unterschiedliche Tageskurven — identische Werte ergeben lediglich dieselbe Kurve in anderem Maßstab. Für nur eine Fläche `forecast_solar_roof2_kwp: 0` setzen.
 
 ## Verbrauchslernen
 
