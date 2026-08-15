@@ -62,6 +62,10 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 # Configuration
 CONFIG_PATH = os.getenv('CONFIG_PATH', '/data/options.json')
 
+class _SkipTibber(Exception):
+    """Signalisiert, dass Tibber-Abfragen in dieser Strategie entfallen."""
+
+
 def load_config():
     """Load configuration from Home Assistant options"""
     try:
@@ -600,7 +604,12 @@ def api_status():
             logger.debug(f"Could not read battery voltage: {e}")
 
         # Read current Tibber price (v0.2.1 - simplified)
+        # v0.10.0 - In der forecast-Strategie spielen Preise keine Rolle.
+        # Ohne diese Bremse werden bei fehlenden Tibber-Sensoren drei
+        # 404-Requests pro Statusabruf erzeugt (alle 2s) und das Log geflutet.
         try:
+            if config.get('charging_strategy', 'forecast') != 'price':
+                raise _SkipTibber()
             # Current price from main Tibber sensor
             tibber_sensor = config.get('tibber_price_sensor', 'sensor.tibber_prices')
             current_price = ha_client.get_state(tibber_sensor)
@@ -621,6 +630,8 @@ def api_status():
                 if today_prices and isinstance(today_prices, list):
                     avg = sum(p.get('total', 0) for p in today_prices) / len(today_prices)
                     app_state['price']['average'] = float(avg)
+        except _SkipTibber:
+            pass
         except Exception as e:
             logger.debug(f"Could not read Tibber price: {e}")
 
@@ -858,6 +869,11 @@ def api_charging_status():
 @app.route('/api/battery_schedule')
 def api_battery_schedule():
     """Get daily battery schedule with SOC forecast and charging plan (v0.9.0)"""
+    # v0.10.0 - Preisbasierter Tagesplan. In der forecast-Strategie
+    # bedeutungslos; der Endpunkt wuerde sonst Tibber-Abfragen und
+    # "Ladefenster" berechnen, die nie ausgefuehrt werden.
+    if config.get('charging_strategy', 'forecast') != 'price':
+        return jsonify({'success': False, 'reason': 'not_applicable_in_forecast_strategy'}), 200
     try:
         # Get current SOC
         current_soc = app_state['battery']['soc']
@@ -952,6 +968,8 @@ def api_adjust_power():
 @app.route('/api/tibber_price_chart')
 def api_tibber_price_chart():
     """Get Tibber price data for today (v0.6.3) for chart display"""
+    if config.get('charging_strategy', 'forecast') != 'price':
+        return jsonify({'success': False, 'reason': 'not_applicable_in_forecast_strategy'}), 200
     try:
         if not ha_client:
             return jsonify({

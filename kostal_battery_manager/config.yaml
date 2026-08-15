@@ -1,5 +1,5 @@
 name: Kostal Battery Manager edited by Phil
-version: "0.10.0"
+version: "0.10.1"
 slug: kostal_battery_manager
 description: "description: Intelligente Batteriesteuerung für Kostal Plenticore Plus mit PV-Prognose, Verbrauchslernen, intelligenter SOC-Optimierung und bedarfsgerechter Batterieladung"
 url: "https://github.com/kaiser1101/kostal-battery-manager.git"

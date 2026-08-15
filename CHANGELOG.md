@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.1] - 2026-08-15
+
+### Fixed
+- **Log-Flut bei fehlenden Tibber-Sensoren**: `/api/status` fragte die
+  Tibber-Sensoren bei jedem Aufruf ab, auch in der `forecast`-Strategie.
+  Ohne Tibber-Integration ergab das drei 404-Requests gegen Home Assistant
+  alle zwei Sekunden. Die Abfragen entfallen jetzt ausserhalb der
+  Preisstrategie.
+- `/api/battery_schedule` und `/api/tibber_price_chart` berechneten auch in
+  der `forecast`-Strategie preisbasierte "Ladefenster" und liefen bei
+  fehlenden Tibber-Sensoren auf HTTP 500. Beide melden dort jetzt
+  `not_applicable_in_forecast_strategy`.
+
 ## [0.10.0] - 2026-08-15
 
 ### Fixed
