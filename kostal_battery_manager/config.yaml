@@ -109,7 +109,8 @@ options:
   # v0.4.0 - Consumption Learning & Optimization
   enable_consumption_learning: true
   learning_period_days: 28  # 4 Wochen Lernzeitraum
-  home_consumption_sensor: "sensor.home_energy_consumption"
+  #home_consumption_sensor: "sensor.home_energy_consumption"
+  home_consumption_sensor: "sensor.hostname_kaiserwerk_home_power"
   # Durchschnittlicher Tagesverbrauch (wird durch 24 geteilt)
   # average_daily_consumption: 20.0  # kWh pro Tag
   # Fallback wenn keine Daten vorhanden (Standard: 1.0 kWh/h)
