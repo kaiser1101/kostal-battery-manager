@@ -78,6 +78,17 @@ Nach oben würde ich nicht über 90 % gehen: Dort wird die kalendarische Alterun
 
 Obergrenze an **knappen Tagen** — also wenn die Tagesprognose unter `priority_window_max_pv_kwh` liegt.
 
+Geprüft wird **heute *und* morgen**. Es genügt, dass einer der beiden Tage knapp ist:
+
+| Fall | Warum die Anhebung nötig ist |
+|---|---|
+| **heute** knapp | Die Batterie wird ohnehin jede Nacht tief entladen — das lange Verweilen bei hohem Ladestand, vor dem der Deckel schützt, entsteht gar nicht erst. |
+| **morgen** knapp | Die Reserve für morgen passt nicht mehr unter den normalen Deckel. Ohne Anhebung kappt er die Rechnung, und was fehlt, kommt morgen abends aus dem Netz — ausgerechnet an einem Tag, an dem nichts nachgeladen werden kann. |
+
+Der zweite Fall ist der Tag **vor** einem Schlechtwettereinbruch: heute scheint die Sonne, morgen nicht. Genau dann muss der Speicher heute mehr mitnehmen als sonst.
+
+Die Anhebung erzwingt **kein** Vollladen. Der Deckel wird weiter aus dem Bedarf berechnet; die Obergrenze hört nur auf, ihn zu kappen. Ist der Bedarf ohnehin niedrig, bleibt der Deckel unten — im Log erscheint die Anhebung dann gar nicht erst.
+
 **Warum die Abwägung im Winter kippt:** Der Deckel schützt vor langem Verweilen bei hohem Ladestand. Im Winter wird die Batterie aber ohnehin jede Nacht tief entladen — dieses Verweilen entsteht dort gar nicht erst. Was der Deckel dann kostet, ist teurer Netzbezug am Abend.
 
 | Tag | Korridor | nutzbar |
@@ -92,6 +103,8 @@ Auf `100` setzen, wenn an knappen Tagen gar kein Deckel gelten soll. Auf denselb
 ### `soc_corridor_min_scarce` (Standard: 25 %)
 
 Untergrenze an **knappen Tagen**, symmetrisch zum angehobenen Deckel.
+
+Anders als der Deckel hängt sie **nur am heutigen Tag**. Die Untergrenze regelt, wie tief heute Nacht entladen wird. Ist erst morgen schlecht, bringt eine tiefere Entladung heute Nacht nichts: Der Bezugspreis ist derselbe, egal wann gekauft wird — es bliebe nur der tiefere Zyklus. Morgen senkt die Bewertung des dann aktuellen Tages die Grenze von selbst.
 
 Eine hohe Untergrenze zwingt im Winter zu Netzbezug, sobald die Batterie sie erreicht — genau das, was vermieden werden soll. Abgesenkt wird aber **vorsichtiger als der Deckel angehoben**: Tiefentladung schadet LFP-Zellen mehr als hoher Ladestand.
 

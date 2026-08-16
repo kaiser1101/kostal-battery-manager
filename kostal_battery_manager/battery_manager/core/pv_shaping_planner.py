@@ -334,16 +334,20 @@ class PVShapingPlanner:
     # ------------------------------------------------------------------
     # Hauptberechnung
     # ------------------------------------------------------------------
-    def ist_knapper_tag(self, pv_today: Dict[int, float]) -> bool:
+    def ist_knapper_tag(self, pv_forecast: Dict[int, float]) -> bool:
         """
-        Gilt der heutige Tag als knapp?
+        Gilt ein Tag als knapp? Wird fuer heute UND fuer morgen aufgerufen.
 
         Gemeinsame Grundlage fuer Vorrangfenster und angehobenen SOC-Deckel,
         damit beide dieselbe Vorstellung von "knapp" haben.
+
+        Eine leere Prognose gilt NICHT als knapp. Sonst wuerde ein Ausfall
+        der Prognose-API den Deckel dauerhaft anheben - eine Fehlfunktion
+        darf nicht dieselbe Wirkung haben wie ein Schlechtwettertag.
         """
         if self.priority_max_pv <= 0:
             return True
-        pv_tag = sum(pv_today.values()) if pv_today else 0.0
+        pv_tag = sum(pv_forecast.values()) if pv_forecast else 0.0
         return 0 < pv_tag < self.priority_max_pv
 
     def _im_vorrangfenster(self, now: datetime, pv_today: Dict[int, float]) -> bool:
@@ -657,20 +661,60 @@ class PVShapingPlanner:
                 cap_reason = (f'morgen fehlen {shortfall_kwh:.1f} kWh - Reserve '
                               f'{reserve_kwh:.1f} kWh noetig')
 
-        # An knappen Tagen gilt die angehobene Obergrenze
+        # An knappen Tagen gilt die angehobene Obergrenze.
+        #
+        # "Knapp" heisst hier HEUTE ODER MORGEN. Beide Faelle brauchen
+        # dieselbe Anhebung, aber aus verschiedenen Gruenden:
+        #
+        #   heute knapp  - die Batterie wird ohnehin jede Nacht tief
+        #                  entladen. Das lange Verweilen bei hohem SOC,
+        #                  vor dem der Deckel schuetzt, entsteht gar nicht.
+        #
+        #   morgen knapp - die Reserve fuer morgen passt nicht mehr unter
+        #                  den normalen Deckel. Ohne Anhebung kappt der
+        #                  Deckel die Rechnung, und was fehlt, kommt morgen
+        #                  abends aus dem Netz - ausgerechnet vor einem
+        #                  Schlechtwettertag, an dem nichts nachgeladen
+        #                  werden kann.
+        #
+        # Die Anhebung erzwingt kein Vollladen: `target_soc` bleibt die
+        # bindende Groesse, die Obergrenze hoert nur auf zu kappen.
         pv_today_fuer_deckel = self.get_hourly_pv_forecast(ha_client, config)
-        knapp = self.ist_knapper_tag(pv_today_fuer_deckel)
+        pv_morgen_fuer_deckel = self.get_hourly_pv_forecast(
+            ha_client, config, for_date=(now + timedelta(days=1)).date()
+        )
+        knapp_heute = self.ist_knapper_tag(pv_today_fuer_deckel)
+        knapp_morgen = self.ist_knapper_tag(pv_morgen_fuer_deckel)
+        knapp = knapp_heute or knapp_morgen
+
         obergrenze = self.soc_corridor_max_scarce if knapp else self.soc_corridor_max
-        if knapp and obergrenze > self.soc_corridor_max:
-            cap_reason += (f'; knapper Tag ({sum(pv_today_fuer_deckel.values()):.1f} kWh) '
-                           f'- Deckel auf {obergrenze:.0f}% angehoben')
+
+        # Nur vermerken, wenn die Anhebung tatsaechlich etwas aendert. Liegt
+        # der Bedarf ohnehin unter dem normalen Deckel, waere "auf 95%
+        # angehoben" im Log irrefuehrend - der Deckel steht dann trotzdem
+        # beim Rechenwert.
+        if (knapp and obergrenze > self.soc_corridor_max
+                and target_soc > self.soc_corridor_max):
+            if knapp_heute:
+                anlass = f'heute knapp ({sum(pv_today_fuer_deckel.values()):.1f} kWh)'
+            else:
+                anlass = f'morgen knapp ({sum(pv_morgen_fuer_deckel.values()):.1f} kWh)'
+            cap_reason += (f'; {anlass} - Deckel von {self.soc_corridor_max:.0f}% '
+                           f'auf {obergrenze:.0f}% angehoben')
 
         max_soc = max(self.soc_corridor_min + 5.0, min(obergrenze, target_soc))
 
         # --- 4. Entladegrenze -----------------------------------------
         # An knappen Tagen tiefer entladen duerfen, aber nie unter die
         # harte Notbremse.
-        if knapp and self.soc_corridor_min_scarce < self.soc_corridor_min:
+        #
+        # Bewusst nur `knapp_heute`, nicht `knapp_morgen`: Die Untergrenze
+        # regelt, wie tief HEUTE NACHT entladen wird. Ist erst morgen
+        # schlecht, bringt eine tiefere Entladung heute nacht nichts - der
+        # Bezugspreis ist derselbe, egal wann gekauft wird, es bliebe also
+        # nur der tiefere Zyklus. Morgen senkt die Bewertung des naechsten
+        # Tages die Grenze dann selbst.
+        if knapp_heute and self.soc_corridor_min_scarce < self.soc_corridor_min:
             min_soc = float(max(self.soc_corridor_min_scarce, self.soc_hard_safety_min))
             cap_reason += (f'; Untergrenze auf {min_soc:.0f}% gesenkt '
                            f'(weniger Netzbezug in der Nacht)')
@@ -769,6 +813,11 @@ class PVShapingPlanner:
                 'tomorrow_shortfall_kwh': round(shortfall_kwh, 2) if shortfall_kwh is not None else None,
                 'sunset_hour': sunset,
                 'pv_today_kwh': round(sum(pv_today.values()), 2) if pv_today else 0.0,
+                'pv_tomorrow_kwh': (round(sum(pv_morgen_fuer_deckel.values()), 2)
+                                    if pv_morgen_fuer_deckel else 0.0),
+                'knapp_heute': knapp_heute,
+                'knapp_morgen': knapp_morgen,
+                'soc_obergrenze': round(obergrenze, 1),
                 'overnight_breakdown': self.last_overnight_breakdown,
             },
         })

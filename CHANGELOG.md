@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.13.6] - 2026-08-16
+
+### Added
+- **Knappheitserkennung beruecksichtigt jetzt auch den Folgetag.** Bisher
+  wurde der angehobene SOC-Deckel (`soc_corridor_max_scarce`) nur
+  ausgeloest, wenn HEUTE knapp war. Der teure Fall war damit nicht
+  abgedeckt: heute sonnig, morgen truebe. Der Planer rechnete den
+  Fehlbetrag fuer morgen zwar korrekt in die Reserve ein, der normale
+  Deckel kappte das Ergebnis aber wieder - und was fehlte, kam morgen
+  abends aus dem Netz, ausgerechnet an einem Tag ohne Nachlademöglichkeit.
+  Beispiel (10,7 kWh, heute 38 kWh / morgen 12 kWh Prognose):
+  Deckel vorher 85 %, jetzt 95 %.
+- Diagnosewerte `knapp_heute`, `knapp_morgen`, `pv_tomorrow_kwh` und
+  `soc_obergrenze` im Plan - damit ist im Nachhinein nachvollziehbar,
+  welcher der beiden Tage die Anhebung ausgeloest hat.
+
+### Changed
+- Die **Untergrenze** (`soc_corridor_min_scarce`) haengt bewusst weiterhin
+  nur am heutigen Tag. Sie regelt, wie tief heute Nacht entladen wird; ist
+  erst morgen schlecht, brachte eine tiefere Entladung heute nacht nur
+  einen tieferen Zyklus - der Bezugspreis ist derselbe, egal wann gekauft
+  wird.
+- Die Anhebung wird nur noch protokolliert, wenn sie tatsaechlich etwas
+  aendert. Zuvor stand "Deckel auf 95% angehoben" auch dann im Log, wenn
+  der Deckel wegen niedrigen Bedarfs bei 82,6 % blieb.
+- Eine **leere Prognose gilt nicht als knapp**. Ein Ausfall der
+  Prognose-API darf nicht dieselbe Wirkung haben wie ein
+  Schlechtwettertag.
+
 ## [0.13.5] - 2026-08-16
 
 ### Changed

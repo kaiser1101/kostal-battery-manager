@@ -55,6 +55,10 @@ An **knappen Tagen** (Tagesprognose unter `priority_window_max_pv_kwh`) gilt des
 
 Die Umschaltung hängt an der **Tagesprognose, nicht am Kalender** — ein trüber Septembertag wird wie ein Wintertag behandelt. Entscheidend ist die Energielage.
 
+Geprüft wird dabei **heute und morgen**. Der zweite Fall ist der Tag *vor* einem Schlechtwettereinbruch: Heute scheint die Sonne, morgen nicht — dann muss der Speicher heute mehr mitnehmen, sonst fehlt es morgen abends. Die Untergrenze richtet sich dagegen nur nach heute, weil sie regelt, wie tief in der kommenden Nacht entladen wird.
+
+Der angehobene Deckel erzwingt kein Vollladen: Er hört nur auf zu kappen, gerechnet wird weiter mit dem tatsächlichen Bedarf.
+
 Beachte die Asymmetrie: Der Deckel geht deutlich hoch (85 → 95 %), die Untergrenze nur wenig runter (30 → 25 %). Tiefentladung schadet LFP-Zellen mehr als hoher Ladestand.
 
 ### Sicherheit
