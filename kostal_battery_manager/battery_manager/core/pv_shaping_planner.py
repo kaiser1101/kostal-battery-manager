@@ -52,6 +52,13 @@ class PVShapingPlanner:
         # Oberhalb dieser Tagesprognose ist genug Energie da, das Fenster
         # bleibt dann inaktiv und es wird normal gedrosselt. 0 = immer aktiv.
         self.priority_max_pv = config.get('priority_window_max_pv_kwh', 25.0)
+        # An knappen Tagen wird der SOC-Deckel angehoben. Begruendung:
+        # Der Deckel schuetzt vor langem Verweilen bei hohem Ladestand -
+        # aber im Winter wird die Batterie ohnehin jede Nacht tief entladen,
+        # dieses Verweilen entsteht also gar nicht. Was der Deckel dort
+        # kostet, ist stattdessen teurer Netzbezug am Abend.
+        self.soc_corridor_max_scarce = config.get('soc_corridor_max_scarce',
+                                                  self.soc_corridor_max)
         self.enable_charge_throttling = config.get('enable_charge_throttling', True)
         self.calibration_interval_days = config.get('calibration_interval_days', 28)
         self.calibration_min_pv_kwh = config.get('calibration_min_pv_kwh', 15.0)
@@ -321,6 +328,18 @@ class PVShapingPlanner:
     # ------------------------------------------------------------------
     # Hauptberechnung
     # ------------------------------------------------------------------
+    def ist_knapper_tag(self, pv_today: Dict[int, float]) -> bool:
+        """
+        Gilt der heutige Tag als knapp?
+
+        Gemeinsame Grundlage fuer Vorrangfenster und angehobenen SOC-Deckel,
+        damit beide dieselbe Vorstellung von "knapp" haben.
+        """
+        if self.priority_max_pv <= 0:
+            return True
+        pv_tag = sum(pv_today.values()) if pv_today else 0.0
+        return 0 < pv_tag < self.priority_max_pv
+
     def _im_vorrangfenster(self, now: datetime, pv_today: Dict[int, float]) -> bool:
         """
         Liegt die aktuelle Stunde im Vorrangfenster eines knappen Tages?
@@ -338,10 +357,7 @@ class PVShapingPlanner:
         """
         if not (self.priority_start <= now.hour <= self.priority_end):
             return False
-        if self.priority_max_pv <= 0:
-            return True
-        pv_tag = sum(pv_today.values()) if pv_today else 0.0
-        return 0 < pv_tag < self.priority_max_pv
+        return self.ist_knapper_tag(pv_today)
 
     def _measured_soc_today(self, ha_client, config, now: datetime) -> Dict[int, float]:
         """
@@ -635,7 +651,15 @@ class PVShapingPlanner:
                 cap_reason = (f'morgen fehlen {shortfall_kwh:.1f} kWh - Reserve '
                               f'{reserve_kwh:.1f} kWh noetig')
 
-        max_soc = max(self.soc_corridor_min + 5.0, min(self.soc_corridor_max, target_soc))
+        # An knappen Tagen gilt die angehobene Obergrenze
+        pv_today_fuer_deckel = self.get_hourly_pv_forecast(ha_client, config)
+        knapp = self.ist_knapper_tag(pv_today_fuer_deckel)
+        obergrenze = self.soc_corridor_max_scarce if knapp else self.soc_corridor_max
+        if knapp and obergrenze > self.soc_corridor_max:
+            cap_reason += (f'; knapper Tag ({sum(pv_today_fuer_deckel.values()):.1f} kWh) '
+                           f'- Deckel auf {obergrenze:.0f}% angehoben')
+
+        max_soc = max(self.soc_corridor_min + 5.0, min(obergrenze, target_soc))
 
         # --- 4. Entladegrenze -----------------------------------------
         min_soc = float(self.soc_corridor_min)

@@ -54,6 +54,21 @@ Der tatsächliche Deckel wird **dynamisch** berechnet und liegt oft darunter —
 >
 > Prüfe daher deinen tatsächlichen Tagesverbrauch. Liegt er deutlich niedriger, lohnt es sich, `soc_corridor_max` zu senken, damit der Hebel überhaupt Spielraum hat.
 
+### `soc_corridor_max_scarce` (Standard: 95 %)
+
+Obergrenze an **knappen Tagen** — also wenn die Tagesprognose unter `priority_window_max_pv_kwh` liegt.
+
+**Warum die Abwägung im Winter kippt:** Der Deckel schützt vor langem Verweilen bei hohem Ladestand. Im Winter wird die Batterie aber ohnehin jede Nacht tief entladen — dieses Verweilen entsteht dort gar nicht erst. Was der Deckel dann kostet, ist teurer Netzbezug am Abend.
+
+| Tag | Korridor | nutzbar |
+|---|---|---|
+| Sommer (38 kWh Prognose) | 30–80 % | 5,3 kWh |
+| Winter (21 kWh Prognose) | 30–95 % | 7,0 kWh |
+
+Auf `100` setzen, wenn an knappen Tagen gar kein Deckel gelten soll. Auf denselben Wert wie `soc_corridor_max` setzen, um die Anhebung abzuschalten.
+
+> **Kein Netzbezug:** Ein höherer Deckel bedeutet nicht, dass die Batterie aus dem Netz geladen wird. Der Deckel ist eine Grenze, keine Aufforderung — geladen wird ausschließlich aus PV-Überschuss.
+
 ### `soc_hard_safety_min` (Standard: 15 %)
 
 Notbremse. Darunter wird das **Entladen gesperrt** (Register 1040 = 0 W).

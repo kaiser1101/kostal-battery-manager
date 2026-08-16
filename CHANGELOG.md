@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.13.2] - 2026-08-16
+
+### Added
+- **Angehobener SOC-Deckel an knappen Tagen** (`soc_corridor_max_scarce`,
+  Standard 95%). Der Deckel schuetzt vor langem Verweilen bei hohem
+  Ladestand - im Winter wird die Batterie aber ohnehin jede Nacht tief
+  entladen, dieses Verweilen entsteht dort gar nicht. Was der Deckel dann
+  kostet, ist teurer Netzbezug am Abend.
+  Sommer 30-80% (5.3 kWh nutzbar), Winter 30-95% (7.0 kWh nutzbar).
+
+### Changed
+- Vorrangfenster und angehobener Deckel nutzen jetzt dieselbe
+  Knappheitsdefinition (`ist_knapper_tag`), damit beide dasselbe unter
+  "knapp" verstehen.
+
 ## [0.13.1] - 2026-08-16
 
 ### Added
