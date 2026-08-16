@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.12.7] - 2026-08-16
+
+### Fixed
+- **Die Wirkungskontrolle verwarf ausgerechnet das, was sie messen soll.**
+  Luecken ueber 3 Stunden galten als Ausfall und flogen aus der
+  Zeitrechnung. Bei konstantem SOC schreibt Home Assistant aber gar keine
+  Zustandsaenderung - lange Plateaus bei 100% erzeugen also genau solche
+  Luecken. Die Verweildauer bei hohem Ladestand wurde dadurch systematisch
+  zu niedrig ausgewiesen.
+  Die Grenze liegt jetzt bei 12 Stunden, und die verworfene Zeit wird
+  ausgewiesen, statt stillschweigend zu verschwinden.
+  An einem Testfall mit 6h-Plateau: Anteil ueber 95% steigt von 31.6% auf
+  43.5%.
+
 ## [0.12.6] - 2026-08-16
 
 ### Fixed

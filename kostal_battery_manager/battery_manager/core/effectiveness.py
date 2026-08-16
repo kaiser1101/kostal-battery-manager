@@ -50,7 +50,8 @@ def _parse_entry(entry: Dict):
 def analyse_soc_history(history: List[Dict],
                         corridor_min: float = 30.0,
                         corridor_max: float = 80.0,
-                        high_soc_threshold: float = 95.0) -> Optional[Dict]:
+                        high_soc_threshold: float = 95.0,
+                        max_gap_hours: float = 12.0) -> Optional[Dict]:
     """
     Wertet eine SOC-Historie aus.
 
@@ -65,6 +66,12 @@ def analyse_soc_history(history: List[Dict],
     Die Zeitanteile werden ueber die Dauer ZWISCHEN den Messpunkten
     gewichtet, nicht ueber deren Anzahl - HA schreibt nur bei Aenderung,
     ein stundenlang konstanter SOC erzeugt also nur einen Eintrag.
+
+    Genau daraus folgt `max_gap_hours`: Eine Luecke bedeutet fast immer
+    KONSTANTEN SOC, nicht fehlende Daten. Und konstant hoher SOC ist der
+    Zustand, den diese Auswertung messen soll - ein knapper Schwellwert
+    wuerde ausgerechnet die langen Plateaus bei 100% verwerfen. Erst
+    Luecken jenseits von `max_gap_hours` gelten als Ausfall.
     """
     points = [p for p in (_parse_entry(e) for e in history) if p]
     if len(points) < 2:
@@ -78,11 +85,11 @@ def analyse_soc_history(history: List[Dict],
     weighted_soc = 0.0
     charge_sum = 0.0          # Summe der SOC-Zuwaechse -> Vollzyklen
 
+    verworfen_h = 0.0
     for (t1, soc1), (t2, soc2) in zip(points, points[1:]):
         hours = (t2 - t1).total_seconds() / 3600.0
-        # Luecken > 3h entstehen durch Ausfaelle und wuerden die
-        # Zeitanteile verfaelschen
-        if hours <= 0 or hours > 3:
+        if hours <= 0 or hours > max_gap_hours:
+            verworfen_h += max(0.0, hours)
             if soc2 > soc1:
                 charge_sum += soc2 - soc1
             continue
@@ -118,6 +125,8 @@ def analyse_soc_history(history: List[Dict],
         'anteil_unter_korridor': round(below_min_h / total_h * 100, 1),
         'vollzyklen': round(charge_sum / 100, 2),
         'vollzyklen_pro_tag': round((charge_sum / 100) / (total_h / 24), 2) if total_h > 0 else 0,
+        'verworfene_stunden': round(verworfen_h, 1),
+        'max_luecke_stunden': max_gap_hours,
     }
 
 

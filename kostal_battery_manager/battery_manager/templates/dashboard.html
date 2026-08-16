@@ -415,7 +415,9 @@ function fmtBlock(titel, d, korridor) {
          + `   ueber ${korridor.max} %              ${d.stunden_ueber_korridor} h  = ${d.anteil_ueber_korridor} % der Zeit\n`
          + `   ueber 95 %              ${d.stunden_ueber_95} h  = ${d.anteil_ueber_95} % der Zeit\n`
          + `   unter ${korridor.min} %              ${d.stunden_unter_korridor} h  = ${d.anteil_unter_korridor} % der Zeit\n`
-         + `   Vollzyklen              ${d.vollzyklen}  (${d.vollzyklen_pro_tag} pro Tag)\n`;
+         + `   Vollzyklen              ${d.vollzyklen}  (${d.vollzyklen_pro_tag} pro Tag)\n`
+         + (d.verworfene_stunden > 0
+             ? `   verworfen (Ausfall)     ${d.verworfene_stunden} h\n` : '');
 }
 
 function loadEffectiveness(days) {
