@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.13.0] - 2026-08-16
+
+### Fixed
+- **Drosselung verteilte gleichmaessig ueber die Stunden statt nach
+  Sonnenprognose.** Die verbleibenden Stunden sind unterschiedlich viel
+  wert: mittags kommen 5 kW, abends 0.5 kW. Die gleichmaessige Verteilung
+  liess die Mittagsspitze ungenutzt und konnte sie danach nicht nachholen -
+  eine sich selbst verstaerkende Falle, weil der Rueckstand gross blieb und
+  das Limit nur langsam mitstieg.
+  An einem sonnigen Wintertag mit 5-kW-Spitze: SOC endete bei 71% statt 80%,
+  7 kWh Ueberschuss blieben ungenutzt - vor einer 15-Stunden-Nacht.
+  Der Rueckstand wird jetzt proportional zur erwarteten Sonne verteilt.
+
+### Added
+- **Knappheitserkennung** (`throttle_scarcity_factor`, Standard 1.5):
+  Deckt der erwartete Restueberschuss den Rueckstand nur knapp, wird gar
+  nicht gedrosselt. Drosseln ergibt nur Sinn, wenn MEHR Ueberschuss da ist
+  als gebraucht wird - sonst verteilt man Knappheit und verliert Energie
+  endgueltig.
+
 ## [0.12.9] - 2026-08-16
 
 ### Fixed

@@ -40,6 +40,9 @@ class PVShapingPlanner:
         self.pv_dropoff_threshold = config.get('pv_dropoff_threshold', 0.05)
 
         self.min_charge_power = config.get('min_charge_power', 500)
+        # Ab welchem Verhaeltnis Ueberschuss/Rueckstand ueberhaupt gedrosselt
+        # wird. Darunter herrscht Knappheit, und Drosseln kostet nur Energie.
+        self.scarcity_factor = config.get('throttle_scarcity_factor', 1.5)
         self.enable_charge_throttling = config.get('enable_charge_throttling', True)
         self.calibration_interval_days = config.get('calibration_interval_days', 28)
         self.calibration_min_pv_kwh = config.get('calibration_min_pv_kwh', 15.0)
@@ -637,6 +640,18 @@ class PVShapingPlanner:
             hours_left = max(1, sunset - now.hour + 1)
             deficit_kwh = max(0.0, (max_soc - current_soc) / 100 * battery_capacity)
 
+            # Erwarteter Restueberschuss bis Sonnenuntergang. Nur wenn davon
+            # deutlich mehr da ist als gebraucht wird, ist Drosseln ueberhaupt
+            # sinnvoll - sonst verteilt man Knappheit.
+            rest_ueberschuss = 0.0
+            stunden_ueberschuss = {}
+            for h in range(now.hour, sunset + 1):
+                verbrauch = (self.consumption_learner.get_average_consumption(h, target_date=now.date())
+                             if self.consumption_learner else 0.0)
+                u = max(0.0, pv_today.get(h, 0.0) - verbrauch)
+                stunden_ueberschuss[h] = u
+                rest_ueberschuss += u
+
             if deficit_kwh <= 0:
                 # Nicht 0 schreiben: der Wert persistiert, und der SOC-Deckel
                 # (Register 1044) stoppt das Laden ohnehin zuverlaessig.
@@ -645,12 +660,28 @@ class PVShapingPlanner:
                 max_charge_power = float(self.min_charge_power)
                 throttle_reason = (f'Ziel-SOC {max_soc:.1f}% erreicht - '
                                    f'Deckel stoppt das Laden')
+            elif rest_ueberschuss < deficit_kwh * self.scarcity_factor:
+                # Knappheit: Der erwartete Ueberschuss reicht kaum fuer den
+                # Rueckstand. Jede gedrosselte Kilowattstunde ist endgueltig
+                # verloren - besonders an sonnigen Wintertagen, wo die
+                # Erzeugung in wenigen Mittagsstunden anfaellt.
+                max_charge_power = configured_max_power
+                throttle_reason = (f'keine Drosselung: erwarteter Ueberschuss '
+                                   f'{rest_ueberschuss:.1f} kWh deckt den Rueckstand '
+                                   f'{deficit_kwh:.1f} kWh nur knapp')
             else:
-                spread_w = (deficit_kwh * 1000) / hours_left
+                # Rueckstand PROPORTIONAL zur erwarteten Sonne verteilen, nicht
+                # gleichmaessig ueber die Stunden. Die verbleibenden Stunden
+                # sind unterschiedlich viel wert: mittags kommen 5 kW, abends
+                # 0.5 kW. Gleichmaessige Verteilung liesse die Mittagsspitze
+                # ungenutzt und koennte sie spaeter nicht nachholen.
+                anteil = (stunden_ueberschuss.get(now.hour, 0.0) / rest_ueberschuss
+                          if rest_ueberschuss > 0 else 1.0 / hours_left)
+                erlaubt_kwh = deficit_kwh * anteil
                 max_charge_power = min(configured_max_power,
-                                       max(self.min_charge_power, spread_w))
-                throttle_reason = (f'{deficit_kwh:.1f} kWh auf {hours_left}h bis '
-                                   f'Sonnenuntergang verteilt')
+                                       max(self.min_charge_power, erlaubt_kwh * 1000))
+                throttle_reason = (f'{deficit_kwh:.1f} kWh nach Prognose verteilt '
+                                   f'({anteil*100:.0f}% der Restsonne faellt in diese Stunde)')
 
         plan.update({
             'max_soc': round(max_soc, 1),
