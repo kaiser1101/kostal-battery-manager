@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.14.0] - 2026-08-16
+
+### Added
+- **Eine gemeinsame Tagesuebersicht** loest die getrennten Diagramme
+  "Batterie-Prognose" und "Prognostizierter Verbrauch" ab. PV, Verbrauch,
+  Batteriefluss und Ladestand liegen jetzt uebereinander in einer
+  Zeitreihe ueber 48 Stunden - heute und morgen.
+  Die Groessen haengen zusammen: Wieviel geladen wird, folgt aus PV minus
+  Verbrauch. Nebeneinander war dieser Zusammenhang nicht zu sehen.
+- PV, Verbrauch und Batteriefluss teilen sich EINE kW-Achse. Die Werte
+  sind kWh pro Stunde, und das ist zahlengleich mit der mittleren
+  Leistung - eine Umrechnung war nie noetig, nur eine gemeinsame Achse.
+- **Durchgezogen = gemessen, gestrichelt = Prognose**, dazu eine rote
+  Jetzt-Linie und die Trennung zwischen heute und morgen. Ohne diese
+  Unterscheidung sieht eine Rechnung aus wie eine Messung.
+- Der erlaubte SOC-Korridor wird als Band hinterlegt - damit ist auf einen
+  Blick sichtbar, ob der Ladestand an eine Grenze stoesst.
+- Neuer Endpunkt `/api/overview_chart` und `PVShapingPlanner.project_overview()`.
+
+### Changed
+- Der Batteriefluss der Vergangenheit wird aus den SOC-Spruengen
+  abgeleitet (dSOC x Kapazitaet) statt aus einem Leistungssensor: dieselbe
+  Groesse in derselben Einheit wie die Projektion, ohne zusaetzlichen
+  Sensor. Luecken in der Historie erzeugen bewusst keinen Balken.
+- Die Karte ist hell gehalten, abweichend vom uebrigen Dashboard. Vier
+  Reihen ueber 48 Stunden brauchen Kontrast, den der dunkle Hintergrund
+  nicht hergibt.
+
+### Fixed
+- Die Projektion fuer MORGEN verwendete die heutige Drosselgrenze. Die
+  wird aus dem heutigen Rueckstand und der heute noch erwarteten Sonne
+  berechnet und hat fuer morgen keine Aussagekraft - der Folgetag wurde
+  dadurch zu pessimistisch dargestellt (Beispiel: 4,5 statt 6,1 kWh
+  Ladung). Fuer morgen gilt jetzt die volle konfigurierte Ladeleistung.
+
 ## [0.13.6] - 2026-08-16
 
 ### Added

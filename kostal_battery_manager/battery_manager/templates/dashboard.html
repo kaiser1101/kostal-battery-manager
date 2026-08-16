@@ -270,19 +270,51 @@
         </div>
     </div>
 
-    <!-- Battery Schedule Chart (v0.9.0) -->
-    <div class="card chart-card" style="grid-column: 1 / -1 !important;">
-        <h2>🔋 Batterie-Prognose & Ladeplanung</h2>
-        <div style="position: relative; height: 350px; padding: 1rem;">
-            <canvas id="batteryScheduleChart"></canvas>
+    <!-- Tagesuebersicht (v0.14.0) - loest Batterie-Prognose und
+         Verbrauchsdiagramm ab: die Groessen haengen zusammen und waren
+         nebeneinander schwer zu lesen.
+         Helle Flaeche bewusst abweichend vom dunklen Dashboard: vier
+         Reihen ueber 48 Stunden brauchen Kontrast, den ein dunkler
+         Hintergrund nicht hergibt. -->
+    <div class="card chart-card" data-forecast-only="1"
+         style="grid-column: 1 / -1 !important; background:#fff; color:#2b2b2b;
+                border:1px solid #e3e3e3;">
+        <h2 style="color:#2b2b2b; text-align:center; font-weight:600;
+                   letter-spacing:.01em;">Tagesübersicht</h2>
+
+        <!-- Kopfzeile im Stil der PV-Forecast-Karte: links was war,
+             rechts was noch kommt, dazwischen der Tagesverlauf -->
+        <div style="display:flex; align-items:center; gap:1rem;
+                    padding:0 1.5rem .25rem; flex-wrap:wrap;">
+            <div style="text-align:right; min-width:110px;">
+                <div id="ov-left-value" style="font-size:1.4rem; font-weight:700;">–</div>
+                <div id="ov-left-label" style="font-size:.85rem; opacity:.65;">bisher</div>
+            </div>
+            <div style="flex:1; min-width:140px;">
+                <div style="position:relative; height:34px; border-radius:5px; overflow:hidden;
+                            background:linear-gradient(90deg,#f6e07a,#ffd94a 55%,#fdf3c4);">
+                    <div id="ov-bar-rest" style="position:absolute; top:0; right:0; bottom:0;
+                         width:0%; background:rgba(255,255,255,.72);"></div>
+                    <div id="ov-bar-now" style="position:absolute; top:0; bottom:0; left:0;
+                         width:2px; background:#d32f2f;"></div>
+                </div>
+                <div id="ov-strip" style="display:flex; height:7px; margin-top:4px; gap:1px;"></div>
+            </div>
+            <div style="min-width:110px;">
+                <div id="ov-right-value" style="font-size:1.4rem; font-weight:700;">–</div>
+                <div id="ov-right-label" style="font-size:.85rem; opacity:.65;">noch erwartet</div>
+            </div>
         </div>
-        <div id="schedule-info" style="padding: 0.5rem 1rem; text-align: center; font-size: 0.95rem; opacity: 0.8;">
-            <!-- Schedule summary will be shown here -->
+
+        <div style="position: relative; height: 420px; padding: .5rem 1rem 0;">
+            <canvas id="overviewChart"></canvas>
         </div>
+        <div id="overview-info" style="padding: .25rem 1.5rem 1.25rem; font-size:.85rem;
+                                       color:#555; line-height:1.5;"></div>
     </div>
 
-    <!-- Consumption Forecast Chart (v0.6.3) -->
-    <div class="card chart-card" style="grid-column: 1 / -1 !important;">
+    <!-- Consumption Forecast Chart (v0.6.3) - nur noch in der Preisstrategie -->
+    <div class="card chart-card" data-price-only="1" style="grid-column: 1 / -1 !important;">
         <h2>📈 Prognostizierter Verbrauch Heute</h2>
         <div style="position: relative; height: 300px; padding: 1rem;">
             <canvas id="consumptionChart"></canvas>
@@ -546,6 +578,9 @@ function updateShapingCard(data) {
         document.querySelectorAll('[data-price-only]').forEach(el => {
             el.style.display = '';
         });
+        document.querySelectorAll('[data-forecast-only]').forEach(el => {
+            el.style.display = 'none';
+        });
         return;
     }
     card.style.display = '';
@@ -555,6 +590,9 @@ function updateShapingCard(data) {
     // Preisbasierte Karten sind in dieser Strategie bedeutungslos
     document.querySelectorAll('[data-price-only]').forEach(el => {
         el.style.display = 'none';
+    });
+    document.querySelectorAll('[data-forecast-only]').forEach(el => {
+        el.style.display = '';
     });
 
     const badge = document.getElementById('shaping-dryrun-badge');
@@ -902,7 +940,74 @@ setInterval(updateLearningStats, 30000);
 // v0.6.3 - Chart.js Charts
 let priceChart = null;
 let consumptionChart = null;
-let batteryScheduleChart = null;  // v0.9.0
+let overviewChart = null;         // v0.14.0
+
+// Zeichnet die Orientierungslinien HINTER die Datenreihen: Mitternacht,
+// die aktuelle Stunde und das Band des erlaubten SOC-Korridors. Ohne die
+// Trennung bei Stunde 24 laesst sich in 48 Werten nicht erkennen, wo
+// morgen anfaengt.
+const overviewMarkerPlugin = {
+    id: 'overviewMarker',
+    beforeDatasetsDraw(chart) {
+        const {ctx, chartArea: area, scales} = chart;
+        if (!area || !scales.x || !chart.data.labels.length) return;
+        const xAt = i => scales.x.getPixelForValue(i);
+        ctx.save();
+
+        // Morgen dezent hinterlegen
+        if (chart.data.labels.length > 24) {
+            const grenze = xAt(23.5);
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.028)';
+            ctx.fillRect(grenze, area.top, area.right - grenze, area.bottom - area.top);
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.18)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(grenze, area.top);
+            ctx.lineTo(grenze, area.bottom);
+            ctx.stroke();
+            ctx.font = '600 11px sans-serif';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
+            ctx.textAlign = 'right';
+            ctx.fillText('HEUTE', grenze - 8, area.top + 13);
+            ctx.textAlign = 'left';
+            ctx.fillText('MORGEN', grenze + 8, area.top + 13);
+        }
+
+        // SOC-Korridor als Band auf der rechten Achse - zeigt, in welchem
+        // Bereich sich der Ladestand ueberhaupt bewegen darf.
+        const ys = scales['y-soc'];
+        if (ys && window._ovCorridor) {
+            const {min, max} = window._ovCorridor;
+            const oben = ys.getPixelForValue(max), unten = ys.getPixelForValue(min);
+            ctx.fillStyle = 'rgba(91, 141, 239, 0.07)';
+            ctx.fillRect(area.left, oben, area.right - area.left, unten - oben);
+            ctx.strokeStyle = 'rgba(91, 141, 239, 0.35)';
+            ctx.setLineDash([3, 3]);
+            ctx.lineWidth = 1;
+            [oben, unten].forEach(y => {
+                ctx.beginPath();
+                ctx.moveTo(area.left, y);
+                ctx.lineTo(area.right, y);
+                ctx.stroke();
+            });
+            ctx.setLineDash([]);
+        }
+
+        // Jetzt-Linie
+        const now = window._ovNow;
+        if (now !== undefined && now !== null) {
+            ctx.strokeStyle = '#d32f2f';
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(xAt(now), area.top);
+            ctx.lineTo(xAt(now), area.bottom);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+        ctx.restore();
+    }
+};
 
 function initCharts() {
     // Price Chart (Bar chart)
@@ -1022,108 +1127,127 @@ function initCharts() {
         });
     }
 
-    // Battery Schedule Chart (v0.9.0) - Mixed chart with SOC line and charging bars
-    const batteryScheduleCtx = document.getElementById('batteryScheduleChart');
-    if (batteryScheduleCtx) {
-        batteryScheduleChart = new Chart(batteryScheduleCtx, {
+    // Tagesuebersicht (v0.14.0) - 48 Stunden, vier Groessen, zwei Achsen.
+    //
+    // PV, Verbrauch und Batteriefluss liegen auf EINER kW-Achse: Die Werte
+    // sind kWh pro Stunde, und das ist zahlengleich mit der mittleren
+    // Leistung in kW. Der SOC bekommt die rechte Prozentachse.
+    //
+    // Durchgezogen = gemessen, gestrichelt = Prognose. Die Unterscheidung
+    // traegt das ganze Diagramm: ohne sie sieht eine Rechnung aus wie eine
+    // Messung.
+    const overviewCtx = document.getElementById('overviewChart');
+    if (overviewCtx) {
+        const gold = '#e8b400';
+        const dashAbJetzt = ctx => ctx.p0DataIndex >= (window._ovNow ?? 0) ? [7, 5] : undefined;
+
+        // Verlaufsfuellung unter der PV-Kurve. Muss scriptable sein, weil
+        // die Zeichenflaeche beim ersten Aufbau noch keine Hoehe hat.
+        const goldFill = ctx => {
+            const {ctx: c, chartArea: area} = ctx.chart;
+            if (!area) return 'rgba(255, 214, 74, 0.25)';
+            const g = c.createLinearGradient(0, area.top, 0, area.bottom);
+            g.addColorStop(0, 'rgba(255, 205, 40, 0.45)');
+            g.addColorStop(1, 'rgba(255, 235, 150, 0.05)');
+            return g;
+        };
+
+        overviewChart = new Chart(overviewCtx, {
             type: 'bar',
             data: {
                 labels: [],
                 datasets: [
                     {
-                        type: 'line',
-                        label: 'SOC Prognose (%)',
-                        data: [],
-                        borderColor: 'rgb(76, 175, 80)',
-                        backgroundColor: 'transparent',
-                        tension: 0.4,
-                        fill: false,
-                        borderWidth: 3,
-                        yAxisID: 'y-soc',
-                        order: 1  // Draw line on top
+                        type: 'line', label: 'Ladestand', data: [],
+                        borderColor: '#5b8def', backgroundColor: 'transparent',
+                        borderWidth: 2.5, pointRadius: 0, tension: 0.35,
+                        yAxisID: 'y-soc', order: 0,
+                        segment: { borderDash: dashAbJetzt }
                     },
                     {
-                        type: 'bar',
-                        label: 'Ladung (+) / Entladung (\u2212) pro Stunde (kWh)',
-                        data: [],
-                        backgroundColor: 'rgba(244, 67, 54, 0.7)',
-                        borderColor: 'rgb(244, 67, 54)',
-                        borderWidth: 1,
-                        yAxisID: 'y-charging',
-                        order: 2  // Draw bars behind line
+                        type: 'line', label: 'PV-Prognose', data: [],
+                        borderColor: gold, backgroundColor: goldFill,
+                        borderWidth: 2.5, pointRadius: 0, tension: 0.35,
+                        fill: 'origin', yAxisID: 'y-kw', order: 3,
+                        segment: { borderDash: dashAbJetzt }
+                    },
+                    {
+                        type: 'line', label: 'Verbrauch', data: [],
+                        borderColor: '#8d8fa6', backgroundColor: 'transparent',
+                        borderWidth: 2, pointRadius: 0, tension: 0.35,
+                        yAxisID: 'y-kw', order: 2,
+                        segment: { borderDash: dashAbJetzt }
+                    },
+                    {
+                        type: 'bar', label: 'Batterie laden / entladen',
+                        data: [], yAxisID: 'y-kw', order: 4,
+                        backgroundColor: ctx => (ctx.raw ?? 0) >= 0
+                            ? 'rgba(76, 175, 80, 0.38)' : 'rgba(211, 47, 47, 0.28)',
+                        borderWidth: 0, barPercentage: 0.85, categoryPercentage: 0.95
                     }
                 ]
             },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: {
-                    mode: 'index',
-                    intersect: false
-                },
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
                 plugins: {
                     legend: {
-                        display: true,
-                        labels: { color: '#fff' }
+                        display: true, position: 'bottom',
+                        labels: { color: '#444', boxWidth: 26, usePointStyle: false,
+                                  padding: 16, font: { size: 12 } }
                     },
                     tooltip: {
+                        backgroundColor: 'rgba(255,255,255,.97)', titleColor: '#222',
+                        bodyColor: '#333', borderColor: '#ddd', borderWidth: 1,
                         callbacks: {
-                            label: function(context) {
-                                if (context.dataset.yAxisID === 'y-soc') {
-                                    return 'SOC: ' + context.parsed.y.toFixed(1) + '%';
-                                } else {
-                                    return 'Ladung: ' + context.parsed.y.toFixed(2) + ' kWh';
-                                }
-                            }
+                            title: items => {
+                                const i = items[0].dataIndex;
+                                return (i < 24 ? 'Heute ' : 'Morgen ')
+                                     + String(i % 24).padStart(2, '0') + ':00  '
+                                     + (i < (window._ovNow ?? 0) ? '(gemessen)' : '(Prognose)');
+                            },
+                            label: c => c.dataset.yAxisID === 'y-soc'
+                                ? 'Ladestand: ' + c.parsed.y.toFixed(1) + ' %'
+                                : c.dataset.label + ': ' + c.parsed.y.toFixed(2) + ' kW'
                         }
                     }
                 },
                 scales: {
                     x: {
-                        ticks: { color: '#ccc' },
-                        grid: { color: 'rgba(255, 255, 255, 0.1)' }
+                        ticks: {
+                            color: '#777', autoSkip: false, font: { size: 11 },
+                            // 48 Werte passen nicht nebeneinander - nur alle
+                            // drei Stunden beschriften.
+                            callback: (v, i) => (i % 3 === 0)
+                                ? String(i % 24).padStart(2, '0') + ':00' : ''
+                        },
+                        grid: { color: 'rgba(0,0,0,0.05)' }
+                    },
+                    'y-kw': {
+                        type: 'linear', position: 'left',
+                        ticks: { color: '#777', callback: v => v + ' kW', font: { size: 11 } },
+                        grid: { color: 'rgba(0,0,0,0.05)' }
                     },
                     'y-soc': {
-                        type: 'linear',
-                        display: true,
-                        position: 'left',
-                        min: 0,
-                        max: 100,
-                        ticks: { color: '#4CAF50' },
-                        grid: { color: 'rgba(76, 175, 80, 0.1)' },
-                        title: {
-                            display: true,
-                            text: 'SOC (%)',
-                            color: '#4CAF50'
-                        }
-                    },
-                    'y-charging': {
-                        type: 'linear',
-                        display: true,
-                        position: 'right',
-                        min: 0,
-                        ticks: { color: '#F44336' },
-                        grid: { display: false },
-                        title: {
-                            display: true,
-                            text: 'Ladung (kWh)',
-                            color: '#F44336'
-                        }
+                        type: 'linear', position: 'right', min: 0, max: 100,
+                        ticks: { color: '#5b8def', callback: v => v + ' %', font: { size: 11 } },
+                        grid: { display: false }
                     }
                 }
-            }
+            },
+            plugins: [overviewMarkerPlugin]
         });
     }
 
     // Load initial data
     updatePriceChart();
     updateConsumptionChart();
-    updateBatteryScheduleChart();  // v0.9.0
+    updateOverviewChart();  // v0.14.0
 
     // Update charts every 5 minutes
     setInterval(updatePriceChart, 300000);
     setInterval(updateConsumptionChart, 300000);
-    setInterval(updateBatteryScheduleChart, 300000);  // v0.9.0
+    setInterval(updateOverviewChart, 300000);  // v0.14.0
 }
 
 function updatePriceChart() {
@@ -1197,75 +1321,81 @@ function updateConsumptionChart() {
         });
 }
 
-function updateBatteryScheduleChart() {
-    fetch(apiUrl('api/battery_schedule'))
-        .then(response => response.json())
+function updateOverviewChart() {
+    if (!overviewChart) return;
+
+    fetch(apiUrl('api/overview_chart'))
+        .then(r => r.json())
         .then(data => {
-            if (batteryScheduleChart) {
-                // Create labels (0:00 to 23:00)
-                const labels = Array.from({length: 24}, (_, i) => `${i}:00`);
-                batteryScheduleChart.data.labels = labels;
+            const info = document.getElementById('overview-info');
+            if (!data.success) {
+                if (info) info.textContent = 'Keine Übersicht: ' + (data.reason || 'unbekannt');
+                return;
+            }
 
-                // Update SOC prognosis (green line)
-                batteryScheduleChart.data.datasets[0].data = data.hourly_soc || Array(24).fill(0);
+            // Von Strichelung und Markierungen gebraucht
+            window._ovNow = data.jetzt_index;
+            window._ovCorridor = {min: data.corridor_min, max: data.corridor_max};
 
-                // Update planned charging (red bars)
-                batteryScheduleChart.data.datasets[1].data = data.hourly_charging || Array(24).fill(0);
+            const labels = [];
+            for (let i = 0; i < 48; i++) labels.push(String(i % 24).padStart(2, '0'));
+            overviewChart.data.labels = labels;
+            overviewChart.data.datasets[0].data = data.soc;
+            overviewChart.data.datasets[1].data = data.pv;
+            overviewChart.data.datasets[2].data = data.verbrauch;
+            overviewChart.data.datasets[3].data = data.batterie;
+            overviewChart.update();
 
-                batteryScheduleChart.update();
+            // --- Kopfzeile: was war, was kommt noch ---------------------
+            const pvHeute = data.pv.slice(0, 24).map(v => v || 0);
+            const bisher = pvHeute.slice(0, data.jetzt_index).reduce((a, b) => a + b, 0);
+            const rest = pvHeute.slice(data.jetzt_index).reduce((a, b) => a + b, 0);
+            const gesamt = bisher + rest;
 
-                // Update schedule info summary
-                const scheduleInfo = document.getElementById('schedule-info');
-                // v0.12.2 - Prognosestrategie liefert eine Tagesprojektion
-                // statt preisbasierter Ladefenster
-                if (scheduleInfo && data.strategie === 'forecast') {
-                    const wann = data.fuer_morgen
-                        ? `Projektion für MORGEN (${data.datum})`
-                        : `Heute · gemessen bis ${data.ab_stunde}:00, danach Projektion`;
-                    scheduleInfo.textContent =
-                        `${wann} · Korridor ${data.corridor_min}\u2013${data.corridor_max} %`
-                      + ` · erwarteter Verlauf ${data.min_soc_reached}\u2013${data.max_soc_reached} %`
-                      + ` · Ladung ${data.total_charging_kwh} kWh`;
-                } else if (scheduleInfo && !data.success && data.reason) {
-                    scheduleInfo.textContent = 'Keine Projektion: ' + data.reason;
-                } else if (scheduleInfo && data.charging_windows) {
-                    const windows = data.charging_windows;
-                    const totalKwh = data.total_charging_kwh || 0;
-                    const minSoc = data.min_soc_reached || 0;
+            setText('ov-left-value', bisher.toFixed(1) + ' kWh');
+            setText('ov-left-label', 'heute bis jetzt');
+            setText('ov-right-value', rest.toFixed(1) + ' kWh');
+            setText('ov-right-label', 'heute noch erwartet');
 
-                    if (windows.length > 0) {
-                        const windowsSummary = windows.map(w =>
-                            `${w.hour}:00 Uhr (${w.charge_kwh.toFixed(1)} kWh @ ${(w.price * 100).toFixed(2)} Cent)`
-                        ).join(', ');
+            const restBar = document.getElementById('ov-bar-rest');
+            const nowBar = document.getElementById('ov-bar-now');
+            const anteil = gesamt > 0 ? (bisher / gesamt) * 100 : 0;
+            if (restBar) restBar.style.width = (100 - anteil).toFixed(1) + '%';
+            if (nowBar) nowBar.style.left = anteil.toFixed(1) + '%';
 
-                        scheduleInfo.innerHTML = `
-                            <span style="color: #4CAF50; font-weight: bold;">
-                                ${windows.length} Ladefenster geplant
-                            </span>
-                            <span style="opacity: 0.8; margin-left: 1rem;">
-                                Gesamt: ${totalKwh.toFixed(2)} kWh | Min SOC: ${minSoc.toFixed(1)}%
-                            </span>
-                            <br>
-                            <span style="opacity: 0.6; font-size: 0.9rem;">
-                                ${windowsSummary}
-                            </span>
-                        `;
-                    } else {
-                        scheduleInfo.innerHTML = `
-                            <span style="color: #4CAF50;">
-                                ✓ Keine Ladung erforderlich - PV deckt Bedarf
-                            </span>
-                            <span style="opacity: 0.6; margin-left: 1rem;">
-                                Min SOC: ${minSoc.toFixed(1)}%
-                            </span>
-                        `;
-                    }
-                }
+            // Intensitaetsstreifen: dieselbe Prognose, nur als Farbe. Gibt
+            // den Tagesverlauf auf einen Blick, ohne eine Wetterquelle zu
+            // erfinden, die es hier nicht gibt.
+            const strip = document.getElementById('ov-strip');
+            if (strip) {
+                const spitze = Math.max(...data.pv.map(v => v || 0), 0.001);
+                strip.innerHTML = data.pv.map((v, i) => {
+                    const a = Math.min(1, (v || 0) / spitze);
+                    const rand = i === 23 ? 'border-right:2px solid rgba(0,0,0,.25);' : '';
+                    return `<div style="flex:1;${rand}background:rgba(232,180,0,${(0.12 + a * 0.88).toFixed(2)});"></div>`;
+                }).join('');
+            }
+
+            if (info) {
+                info.innerHTML =
+                    `<b>Heute</b> ☀ ${data.pv_heute_kwh} · Verbrauch ${data.verbrauch_heute_kwh}`
+                  + ` · Batterie +${data.geladen_heute_kwh} kWh &nbsp;·&nbsp; `
+                  + `<b>Morgen</b> ☀ ${data.pv_morgen_kwh} · Verbrauch ${data.verbrauch_morgen_kwh}`
+                  + ` · Batterie +${data.geladen_morgen_kwh} kWh<br>`
+                  + `Korridor ${data.corridor_min}\u2013${data.corridor_max} %`
+                  + ` · Ladegrenze heute ${data.max_charge_kw} kW`
+                  + ` · durchgezogen = gemessen, gestrichelt = Prognose<br>`
+                  + `<span style="opacity:.75">${data.begruendung || ''}</span><br>`
+                  + `<span style="opacity:.6; font-size:.92em">Die PV-Kurve ist durchgehend`
+                  + ` Prognose \u2013 die tatsächlich erzeugte Leistung wird nicht gemessen.</span>`;
             }
         })
-        .catch(error => {
-            console.error('Error updating battery schedule chart:', error);
-        });
+        .catch(err => console.error('Error updating overview chart:', err));
+}
+
+function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
 }
 
 // Initialize charts when DOM is ready

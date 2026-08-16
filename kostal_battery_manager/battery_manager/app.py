@@ -1325,6 +1325,33 @@ def api_battery_schedule():
             'last_planned': None
         }), 500
 
+@app.route('/api/overview_chart')
+def api_overview_chart():
+    """
+    Tagesuebersicht (v0.14.0): PV, Verbrauch, Batteriefluss und SOC fuer
+    heute und morgen in einer gemeinsamen Zeitreihe.
+
+    Loest die getrennten Diagramme fuer Verbrauch und Batterieprognose ab -
+    die Groessen haengen zusammen und waren nur nebeneinander schwer
+    lesbar.
+    """
+    if config.get('charging_strategy', 'forecast') == 'price':
+        return jsonify({'success': False,
+                        'reason': 'Nur in der forecast-Strategie verfuegbar'}), 200
+    if not (pv_shaping_planner and ha_client):
+        return jsonify({'success': False, 'reason': 'Planer nicht verfuegbar'}), 200
+    try:
+        soc = read_soc(ha_client, config, fallback=app_state['battery'].get('soc'))
+        if soc is None:
+            return jsonify({'success': False, 'reason': 'SOC unbekannt'}), 200
+        return jsonify(pv_shaping_planner.project_overview(
+            ha_client=ha_client, config=config, current_soc=soc,
+            battery_capacity=config.get('battery_capacity', 10.6)))
+    except Exception as e:
+        logger.error(f"Tagesuebersicht fehlgeschlagen: {e}", exc_info=True)
+        return jsonify({'success': False, 'reason': str(e)}), 200
+
+
 @app.route('/api/adjust_power', methods=['POST'])
 def api_adjust_power():
     """Adjust charging power during active charging (v0.2.0)"""

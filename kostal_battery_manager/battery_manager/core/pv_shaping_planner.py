@@ -568,6 +568,148 @@ class PVShapingPlanner:
             'ab_stunde': now.hour,
         }
 
+    # ------------------------------------------------------------------
+    # 48-Stunden-Uebersicht fuer das Dashboard
+    # ------------------------------------------------------------------
+    def project_overview(self, ha_client, config, current_soc: float,
+                         battery_capacity: float,
+                         now: Optional[datetime] = None) -> Dict:
+        """
+        Heute und morgen in einer einzigen Zeitreihe, 48 Stundenwerte.
+
+        Fuer vergangene Stunden werden GEMESSENE Werte gezeigt, ab der
+        aktuellen Stunde die Projektion. Die Grenze steht in `jetzt_index`,
+        damit das Diagramm beides optisch trennen kann - sonst sieht eine
+        Vorhersage aus wie eine Messung.
+
+        Alle Energiewerte sind kWh pro Stunde. Das ist zahlengleich mit der
+        mittleren Leistung in kW, weshalb PV, Verbrauch und Batteriefluss
+        auf einer gemeinsamen kW-Achse liegen koennen.
+
+        Der Batteriefluss der Vergangenheit wird aus den SOC-Spruengen
+        abgeleitet (dSOC x Kapazitaet) statt aus einem Leistungssensor:
+        Es ist dieselbe Groesse in derselben Einheit wie die Projektion,
+        und es braucht keinen zusaetzlichen Sensor.
+        """
+        now = now or datetime.now().astimezone()
+        plan = self.plan(ha_client, config, current_soc, battery_capacity, now=now)
+
+        heute = now.date()
+        morgen = (now + timedelta(days=1)).date()
+        pv_tage = {
+            0: self.get_hourly_pv_forecast(ha_client, config) or {},
+            1: self.get_hourly_pv_forecast(ha_client, config, for_date=morgen) or {},
+        }
+
+        max_soc = plan['max_soc']
+        min_soc = plan['min_soc']
+        jetzt = now.hour
+
+        # Die Drosselgrenze gilt nur fuer HEUTE. Sie wird aus dem aktuellen
+        # Rueckstand und der heute noch erwarteten Sonne berechnet - fuer
+        # morgen hat sie keine Aussagekraft, weil sie dort aus den Werten
+        # des naechsten Tages neu entsteht. Fuer morgen daher die volle
+        # konfigurierte Ladeleistung annehmen.
+        max_charge_kwh_tag = {
+            0: plan['max_charge_power'] / 1000.0,
+            1: float(config.get('max_charge_power', 4300)) / 1000.0,
+        }
+
+        def gelernt(hour, datum):
+            if not self.consumption_learner:
+                return 0.0
+            return self.consumption_learner.get_average_consumption(hour, target_date=datum)
+
+        gemessener_verbrauch = {}
+        if self.consumption_learner:
+            try:
+                gemessener_verbrauch = self.consumption_learner.get_today_consumption(heute) or {}
+            except Exception as e:
+                logger.debug(f"Gemessener Verbrauch nicht verfuegbar: {e}")
+
+        soc_gemessen = self._measured_soc_today(ha_client, config, now)
+
+        pv = [None] * 48
+        verbrauch = [None] * 48
+        soc_reihe = [None] * 48
+        batterie = [None] * 48
+
+        # --- Vergangenheit: gemessen ----------------------------------
+        for hour in range(min(jetzt, 24)):
+            pv[hour] = round(pv_tage[0].get(hour, 0.0), 3)
+            gemessen = gemessener_verbrauch.get(hour)
+            verbrauch[hour] = round(gemessen if gemessen is not None
+                                    else gelernt(hour, heute), 3)
+            if hour in soc_gemessen:
+                soc_reihe[hour] = round(soc_gemessen[hour], 1)
+
+        # Batteriefluss aus den SOC-Spruengen. Nur dort, wo beide
+        # Nachbarwerte gemessen sind - sonst entstuende aus einer Luecke
+        # ein Sprung, der wie eine Ladung aussieht.
+        for hour in range(1, min(jetzt, 24)):
+            vorher, jetzt_wert = soc_reihe[hour - 1], soc_reihe[hour]
+            if vorher is not None and jetzt_wert is not None:
+                batterie[hour] = round((jetzt_wert - vorher) / 100 * battery_capacity, 2)
+
+        # --- Gegenwart und Zukunft: projiziert ------------------------
+        soc = current_soc
+        if jetzt < 24:
+            soc_reihe[jetzt] = round(soc, 1)
+            pv[jetzt] = round(pv_tage[0].get(jetzt, 0.0), 3)
+            verbrauch[jetzt] = round(gelernt(jetzt, heute), 3)
+            batterie[jetzt] = 0.0
+
+        for idx in range(jetzt + 1, 48):
+            tag, hour = divmod(idx, 24)
+            datum = heute if tag == 0 else morgen
+
+            pv_h = pv_tage[tag].get(hour, 0.0)
+            use = gelernt(hour, datum)
+            bilanz = pv_h - use
+
+            if bilanz > 0:
+                platz = max(0.0, (max_soc - soc) / 100 * battery_capacity)
+                fluss = min(bilanz, max_charge_kwh_tag[tag], platz)
+                soc += fluss / battery_capacity * 100
+            else:
+                verfuegbar = max(0.0, (soc - min_soc) / 100 * battery_capacity)
+                fluss = -min(-bilanz, verfuegbar)
+                soc += fluss / battery_capacity * 100
+
+            pv[idx] = round(pv_h, 3)
+            verbrauch[idx] = round(use, 3)
+            soc_reihe[idx] = round(soc, 1)
+            batterie[idx] = round(fluss, 2)
+
+        geladen_heute = sum(b for b in batterie[:24] if b and b > 0)
+        geladen_morgen = sum(b for b in batterie[24:] if b and b > 0)
+
+        return {
+            'success': True,
+            'strategie': 'forecast',
+            'jetzt_index': jetzt,
+            'datum_heute': heute.isoformat(),
+            'datum_morgen': morgen.isoformat(),
+            'pv': pv,
+            'verbrauch': verbrauch,
+            'soc': soc_reihe,
+            'batterie': batterie,
+            'corridor_min': min_soc,
+            'corridor_max': max_soc,
+            'max_charge_kw': round(max_charge_kwh_tag[0], 2),
+            'pv_heute_kwh': round(sum(pv_tage[0].values()), 1),
+            'pv_morgen_kwh': round(sum(pv_tage[1].values()), 1),
+            'verbrauch_heute_kwh': round(sum(v for v in verbrauch[:24] if v), 1),
+            'verbrauch_morgen_kwh': round(sum(v for v in verbrauch[24:] if v), 1),
+            'geladen_heute_kwh': round(geladen_heute, 1),
+            'geladen_morgen_kwh': round(geladen_morgen, 1),
+            'modus': plan['mode'],
+            'begruendung': plan['reason'],
+            # PV liegt auch fuer die Vergangenheit nur als Prognose vor -
+            # ein Messwert der tatsaechlichen Erzeugung existiert nicht.
+            'pv_ist_prognose': True,
+        }
+
     def plan(self, ha_client, config, current_soc: float, battery_capacity: float,
              now: Optional[datetime] = None) -> Dict:
         """

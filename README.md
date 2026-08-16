@@ -224,9 +224,13 @@ Historische Daten lassen sich über die Seite „Verbrauchsimport" per CSV oder 
 ## 📊 Dashboard
 
 - **🛡️ Batterieschonung** — der aktuelle Plan: SOC-Korridor, Ladegrenze, Begründung im Klartext, Überbrückungsbedarf, Fehlbetrag morgen, zurückgelesener Registerzustand. Dazu Registertest und Haltetest.
-- **🔋 Batterie-Prognose** — SOC-Verlauf: gemessen bis zur aktuellen Stunde, danach projiziert. Nach Sonnenuntergang wird der morgige Tag gezeigt.
+- **📊 Tagesübersicht** — alles in einem Bild, 48 Stunden für heute und morgen: PV-Prognose, Verbrauch, Batteriefluss und Ladestand übereinander. Durchgezogene Linien sind gemessen, gestrichelte prognostiziert; eine rote Linie markiert die aktuelle Stunde, ein Band den erlaubten SOC-Korridor.
+
+  PV, Verbrauch und Batteriefluss teilen sich eine kW-Achse — die Werte sind kWh pro Stunde, und das ist zahlengleich mit der mittleren Leistung. Der Ladestand läuft auf der rechten Prozentachse.
 - **📈 Wirkungskontrolle** — Verweildauer über dem Korridor, vorher gegen nachher.
 - **📊 Verbrauchslernen** — Abdeckung und Datenbasis.
+
+Die PV-Kurve ist durchgehend Prognose: Die tatsächlich erzeugte Leistung wird nirgends gemessen, es gibt dafür keinen Sensor. Der Batteriefluss der Vergangenheit wird dagegen aus den Sprüngen des gemessenen Ladestands abgeleitet — dieselbe Größe in derselben Einheit wie die Projektion.
 
 In der `forecast`-Strategie werden die preisbasierten Karten ausgeblendet.
 
