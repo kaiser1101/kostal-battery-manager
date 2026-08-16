@@ -69,6 +69,21 @@ Auf `100` setzen, wenn an knappen Tagen gar kein Deckel gelten soll. Auf denselb
 
 > **Kein Netzbezug:** Ein höherer Deckel bedeutet nicht, dass die Batterie aus dem Netz geladen wird. Der Deckel ist eine Grenze, keine Aufforderung — geladen wird ausschließlich aus PV-Überschuss.
 
+### `soc_corridor_min_scarce` (Standard: 25 %)
+
+Untergrenze an **knappen Tagen**, symmetrisch zum angehobenen Deckel.
+
+Eine hohe Untergrenze zwingt im Winter zu Netzbezug, sobald die Batterie sie erreicht — genau das, was vermieden werden soll. Abgesenkt wird aber **vorsichtiger als der Deckel angehoben**: Tiefentladung schadet LFP-Zellen mehr als hoher Ladestand.
+
+| Tag | Korridor | nutzbar |
+|---|---|---|
+| Sommer (38 kWh Prognose) | 30–80 % | 5,3 kWh |
+| Winter (21 kWh Prognose) | 25–95 % | **7,5 kWh** |
+
+Im Winter stehen damit 2,2 kWh mehr zur Verfügung — rund vier Stunden Wärmepumpenbetrieb, die sonst aus dem Netz kämen.
+
+`soc_hard_safety_min` bleibt in jedem Fall die harte Untergrenze: Ein niedrigerer Wert hier wird darauf begrenzt.
+
 ### `soc_hard_safety_min` (Standard: 15 %)
 
 Notbremse. Darunter wird das **Entladen gesperrt** (Register 1040 = 0 W).

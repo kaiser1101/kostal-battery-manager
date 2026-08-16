@@ -59,6 +59,12 @@ class PVShapingPlanner:
         # kostet, ist stattdessen teurer Netzbezug am Abend.
         self.soc_corridor_max_scarce = config.get('soc_corridor_max_scarce',
                                                   self.soc_corridor_max)
+        # Untergrenze an knappen Tagen. Symmetrisch zum Deckel: Im Winter
+        # zwingt eine hohe Untergrenze zu Netzbezug, sobald die Batterie sie
+        # erreicht. Tiefentladung schadet LFP-Zellen aber mehr als hoher
+        # Ladestand - deshalb hier vorsichtiger absenken als beim Deckel.
+        self.soc_corridor_min_scarce = config.get('soc_corridor_min_scarce',
+                                                  self.soc_corridor_min)
         self.enable_charge_throttling = config.get('enable_charge_throttling', True)
         self.calibration_interval_days = config.get('calibration_interval_days', 28)
         self.calibration_min_pv_kwh = config.get('calibration_min_pv_kwh', 15.0)
@@ -662,7 +668,14 @@ class PVShapingPlanner:
         max_soc = max(self.soc_corridor_min + 5.0, min(obergrenze, target_soc))
 
         # --- 4. Entladegrenze -----------------------------------------
-        min_soc = float(self.soc_corridor_min)
+        # An knappen Tagen tiefer entladen duerfen, aber nie unter die
+        # harte Notbremse.
+        if knapp and self.soc_corridor_min_scarce < self.soc_corridor_min:
+            min_soc = float(max(self.soc_corridor_min_scarce, self.soc_hard_safety_min))
+            cap_reason += (f'; Untergrenze auf {min_soc:.0f}% gesenkt '
+                           f'(weniger Netzbezug in der Nacht)')
+        else:
+            min_soc = float(self.soc_corridor_min)
 
         # --- 5. Ladeleistung drosseln ---------------------------------
         # Die noch fehlende Energie ueber die verbleibenden PV-Stunden

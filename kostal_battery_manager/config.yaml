@@ -1,5 +1,5 @@
 name: Kostal Battery Manager edited by Phil
-version: "0.13.2"
+version: "0.13.3"
 slug: kostal_battery_manager
 description: "description: Intelligente Batteriesteuerung für Kostal Plenticore Plus mit PV-Prognose, Verbrauchslernen, intelligenter SOC-Optimierung und bedarfsgerechter Batterieladung"
 url: "https://github.com/kaiser1101/kostal-battery-manager.git"
@@ -94,6 +94,11 @@ options:
   # entsteht dort also gar nicht. Was der Deckel dann kostet, ist teurer
   # Netzbezug am Abend. 100 = im Winter gar kein Deckel.
   soc_corridor_max_scarce: 95
+  # Untergrenze an KNAPPEN Tagen. Symmetrisch zum angehobenen Deckel: eine
+  # hohe Untergrenze zwingt im Winter zu Netzbezug, sobald sie erreicht ist.
+  # Tiefentladung schadet LFP aber mehr als hoher Ladestand - deshalb hier
+  # vorsichtiger absenken. Nie unter soc_hard_safety_min wirksam.
+  soc_corridor_min_scarce: 25
   soc_hard_safety_min: 15  # Harte Notbremse, unabhaengig vom Abend-Check (%)
   pv_forecast_safety_margin: 0.8  # Anteil der PV-Prognose, dem vertraut wird
   pv_dropoff_threshold: 0.05  # Trigger: PV unter X des Tagesmaximums
@@ -176,6 +181,7 @@ schema:
   publish_ha_sensors: bool
   ha_entity_prefix: str
   soc_corridor_min: int(5,60)
+  soc_corridor_min_scarce: int(5,60)
   soc_corridor_max: int(40,100)
   soc_corridor_max_scarce: int(40,100)
   soc_hard_safety_min: int(5,50)

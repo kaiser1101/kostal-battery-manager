@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.13.3] - 2026-08-16
+
+### Added
+- **Abgesenkte Entladegrenze an knappen Tagen**
+  (`soc_corridor_min_scarce`, Standard 25%), symmetrisch zum angehobenen
+  Deckel. Eine hohe Untergrenze zwingt im Winter zu Netzbezug, sobald die
+  Batterie sie erreicht. Abgesenkt wird vorsichtiger als der Deckel
+  angehoben, weil Tiefentladung LFP-Zellen mehr schadet als hoher
+  Ladestand.
+  Sommer 30-80% (5.3 kWh nutzbar), Winter 25-95% (7.5 kWh).
+  `soc_hard_safety_min` bleibt in jedem Fall die harte Untergrenze.
+
 ## [0.13.2] - 2026-08-16
 
 ### Added
