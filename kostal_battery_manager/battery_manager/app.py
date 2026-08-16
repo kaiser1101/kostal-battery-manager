@@ -134,7 +134,7 @@ def load_config():
         'calibration_interval_days': 28,
         'calibration_min_pv_kwh': 15.0,
         'soc_corridor_min': 30,             # weiche Untergrenze, schonender Korridor
-        'soc_corridor_max': 80,             # weiche Obergrenze, kein Vollladen
+        'soc_corridor_max': 85,             # weiche Obergrenze, kein Vollladen
         'soc_hard_safety_min': 15,          # harte Notbremse, unabhängig vom Abend-Check
         'pv_forecast_safety_margin': 0.8,   # Sicherheitsmarge auf PV-Prognose
         'pv_dropoff_threshold': 0.05,       # Trigger: PV < 5% des Tagesmaximums
@@ -884,7 +884,7 @@ def api_effectiveness():
                         'ha_meldung': fehler}), 200
 
     cmin = float(config.get('soc_corridor_min', 30))
-    cmax = float(config.get('soc_corridor_max', 80))
+    cmax = float(config.get('soc_corridor_max', 85))
 
     result = {
         'success': True,

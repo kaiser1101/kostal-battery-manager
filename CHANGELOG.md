@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.13.5] - 2026-08-16
+
+### Changed
+- **`soc_corridor_max` Standard von 80 auf 85 % angehoben.** Bei 80 % war
+  die Kappung an der Referenzanlage die *bindende* Grenze, nicht mehr die
+  Sicherheitsobergrenze: Bei 10,7 kWh Kapazitaet und 5,63 kWh
+  Ueberbrueckungsbedarf rechnet der Planer einen Ziel-SOC von 82,6 % aus
+  und wurde auf 80 % gekappt. Es fehlten rund 0,28 kWh pro Nacht, die
+  morgens aus dem Netz kamen - genau das, was die Strategie vermeiden
+  soll.
+  85 % laesst die Rechnung entscheiden statt die Kappung; der dynamische
+  Deckel liegt an den meisten Tagen weiterhin deutlich darunter. Auf die
+  Verweildauer ueber 95 % hat die Aenderung keinen Einfluss.
+
+### Added
+- CONFIGURATION.md: Rechenweg, mit dem jeder seinen eigenen
+  `soc_corridor_max` bestimmen kann, statt eine Pauschalempfehlung zu
+  uebernehmen. Der Wert haengt am Verhaeltnis von Nachtverbrauch zu
+  Speichergroesse und ist damit anlagenspezifisch.
+
+### Fixed
+- Die Erklaerung zu `soc_corridor_max` beruhte noch auf dem fehlerhaften
+  Verbrauchslerner (9,1 kWh Nachtbedarf) und riet deshalb dazu, den Deckel
+  zu *senken*. Mit korrekt gelerntem Verbrauch ist die Schlussfolgerung
+  genau umgekehrt.
+
 ## [0.13.4] - 2026-08-16
 
 ### Changed

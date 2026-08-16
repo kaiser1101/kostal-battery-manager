@@ -1,5 +1,5 @@
 name: Kostal Battery Manager edited by Phil
-version: "0.13.4"
+version: "0.13.5"
 slug: kostal_battery_manager
 description: "description: Intelligente Batteriesteuerung für Kostal Plenticore Plus mit PV-Prognose, Verbrauchslernen, intelligenter SOC-Optimierung und bedarfsgerechter Batterieladung"
 url: "https://github.com/kaiser1101/kostal-battery-manager.git"
@@ -87,7 +87,7 @@ options:
   # Alle Entscheidungen landen nur im Log. Zum Testen auf true lassen!
   dry_run: true
   soc_corridor_min: 30  # Weiche Untergrenze des schonenden SOC-Korridors (%)
-  soc_corridor_max: 80  # Weiche Obergrenze: kein routinemaessiges Vollladen (%)
+  soc_corridor_max: 85  # Weiche Obergrenze: kein routinemaessiges Vollladen (%)
   # Obergrenze an KNAPPEN Tagen (Tagesprognose unter priority_window_max_pv_kwh).
   # Der Deckel schuetzt vor langem Verweilen bei hohem Ladestand - im Winter
   # wird die Batterie aber ohnehin jede Nacht tief entladen, dieses Verweilen

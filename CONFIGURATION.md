@@ -28,7 +28,7 @@ Der Wechselrichter meldet die Kapazität selbst in Register 1068; beim Verbindun
 ```
 100% ┌─────────────────────────┐
      │                         │
-     │  soc_corridor_max (80)  │  ← Obergrenze für normales Laden
+     │  soc_corridor_max (85)  │  ← Obergrenze für normales Laden
      │  ░░░░░░░░░░░░░░░░░░░░░  │
      │  ░ Arbeitsbereich ░░░░  │
      │  ░░░░░░░░░░░░░░░░░░░░░  │
@@ -44,15 +44,35 @@ Untergrenze für das Entladen (Register 1042). Schützt vor tiefen Zyklen.
 
 Höhere Werte schonen die Batterie, verkleinern aber den nutzbaren Bereich.
 
-### `soc_corridor_max` (Standard: 80 %)
+### `soc_corridor_max` (Standard: 85 %)
 
 Obergrenze für das Laden (Register 1044). Verhindert routinemäßiges Vollladen.
 
-Der tatsächliche Deckel wird **dynamisch** berechnet und liegt oft darunter — nämlich dann, wenn die morgige PV-Prognose gut ist und die Batterie weniger Reserve braucht.
+Der tatsächliche Deckel wird **dynamisch** berechnet und liegt meist darunter — nämlich dann, wenn die morgige PV-Prognose gut ist und die Batterie weniger Reserve braucht. `soc_corridor_max` ist nur die Kappungsgrenze.
 
-> **Wichtige Einschränkung:** Der dynamische Deckel greift nur, wenn deine Batterie groß genug relativ zum Nachtverbrauch ist. Rechenbeispiel: 10,6 kWh Kapazität, 0,7 kWh/h Verbrauch, 13 Stunden Nacht → 9,1 kWh Nachtbedarf. Das sind 86 % der Kapazität. Zusammen mit `soc_corridor_min` von 30 % ergibt sich rechnerisch ein Ziel über 100 %, also bleibt der Deckel dauerhaft bei 80 %.
+#### Den richtigen Wert bestimmen
+
+Der Wert ist **anlagenspezifisch**. Er hängt vom Verhältnis deines Nachtverbrauchs zur Speichergröße ab, nicht von einer allgemeinen Empfehlung. Rechne so:
+
+```
+benötigter Deckel = soc_corridor_min + (Überbrückungsbedarf / Kapazität) × 100
+```
+
+Den **Überbrückungsbedarf** zeigt das Dashboard in der Karte 🛡️ Batteriescho­nung an, sobald der Lerner genug Daten hat — es ist die Energie von Sonnenuntergang bis Sonnenaufgang. Genau diese Formel verwendet auch der Planer.
+
+Beispiel für die Referenzanlage (10,7 kWh, 5,63 kWh Überbrückungsbedarf):
+
+```
+30 % + (5,63 / 10,7) × 100 = 82,6 %
+```
+
+Der Deckel muss also **über 82,6 %** liegen, sonst kappt er die Rechnung und die Batterie geht mit zu wenig Ladung in die Nacht. Bei 80 % fehlen 0,28 kWh, die morgens aus dem Netz kommen. Daher der Standard 85 %: knapp 5 % Luft über dem Rechenwert, weil der Überbrückungsbedarf ein Mittelwert ist und täglich schwankt.
+
+> **Faustregel:** Liegt dein rechnerischer Deckel **über** `soc_corridor_max`, ist die Kappung die bindende Grenze — nicht mehr die Sicherheitsobergrenze. Dann kaufst du jede Nacht etwas Strom zu. Erhöhe den Wert, bis er nicht mehr bindet.
 >
-> Prüfe daher deinen tatsächlichen Tagesverbrauch. Liegt er deutlich niedriger, lohnt es sich, `soc_corridor_max` zu senken, damit der Hebel überhaupt Spielraum hat.
+> Liegt er deutlich **darunter** (großer Speicher, kleiner Nachtverbrauch), hat der dynamische Deckel viel Spielraum — dann bringt ein niedrigerer `soc_corridor_max` zusätzliche Schonung, ohne Autarkie zu kosten.
+
+Nach oben würde ich nicht über 90 % gehen: Dort wird die kalendarische Alterung spürbar steiler, während der Gewinn an Reserve klein bleibt.
 
 ### `soc_corridor_max_scarce` (Standard: 95 %)
 
@@ -62,7 +82,7 @@ Obergrenze an **knappen Tagen** — also wenn die Tagesprognose unter `priority_
 
 | Tag | Korridor | nutzbar |
 |---|---|---|
-| Sommer (38 kWh Prognose) | 30–80 % | 5,3 kWh |
+| Sommer (38 kWh Prognose) | 30–85 % | 5,9 kWh |
 | Winter (21 kWh Prognose) | 30–95 % | 7,0 kWh |
 
 Auf `100` setzen, wenn an knappen Tagen gar kein Deckel gelten soll. Auf denselben Wert wie `soc_corridor_max` setzen, um die Anhebung abzuschalten.
@@ -77,10 +97,10 @@ Eine hohe Untergrenze zwingt im Winter zu Netzbezug, sobald die Batterie sie err
 
 | Tag | Korridor | nutzbar |
 |---|---|---|
-| Sommer (38 kWh Prognose) | 30–80 % | 5,3 kWh |
+| Sommer (38 kWh Prognose) | 30–85 % | 5,9 kWh |
 | Winter (21 kWh Prognose) | 25–95 % | **7,5 kWh** |
 
-Im Winter stehen damit 2,2 kWh mehr zur Verfügung — rund vier Stunden Wärmepumpenbetrieb, die sonst aus dem Netz kämen.
+Im Winter stehen damit 1,6 kWh mehr zur Verfügung — rund drei Stunden Wärmepumpenbetrieb, die sonst aus dem Netz kämen.
 
 `soc_hard_safety_min` bleibt in jedem Fall die harte Untergrenze: Ein niedrigerer Wert hier wird darauf begrenzt.
 
@@ -349,7 +369,7 @@ Zusätzlich wird bei jeder Planänderung der Ist-Zustand mitgeloggt:
 [DRY-RUN] Register-Ist-Zustand: max_charge_power=4300.0 · max_soc=100.0 · min_soc=10.0
 ```
 
-Damit siehst du **vor** dem Scharfschalten, was sich ändern würde. Im Beispiel oben stünde der Wechselrichter auf 10–100 % — die Strategie würde daraus 30–80 % machen.
+Damit siehst du **vor** dem Scharfschalten, was sich ändern würde. Im Beispiel oben stünde der Wechselrichter auf 10–100 % — die Strategie würde daraus 30–85 % machen.
 
 ### Registertest: nimmt der Wechselrichter die Limits an?
 

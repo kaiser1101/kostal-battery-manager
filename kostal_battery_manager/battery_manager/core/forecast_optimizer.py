@@ -38,7 +38,7 @@ class ForecastOptimizer:
 
     def __init__(self, config: Dict):
         self.soc_corridor_min = config.get('soc_corridor_min', 30)
-        self.soc_corridor_max = config.get('soc_corridor_max', 80)
+        self.soc_corridor_max = config.get('soc_corridor_max', 85)
         self.soc_hard_safety_min = config.get('soc_hard_safety_min', 15)
         self.pv_forecast_safety_margin = config.get('pv_forecast_safety_margin', 0.8)
         self.pv_dropoff_threshold = config.get('pv_dropoff_threshold', 0.05)

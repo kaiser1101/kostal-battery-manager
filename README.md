@@ -27,7 +27,7 @@ Der Wechselrichter entscheidet weiterhin selbst, wann er lädt — nur eben inne
 
 **1. SOC-Deckel.** Aus PV-Prognose für morgen und gelerntem Verbrauch wird berechnet, wieviel Reserve die Batterie wirklich braucht. Kommt morgen viel Sonne, sinkt der Deckel — die Batterie verbringt weniger Zeit bei hohem Ladestand.
 
-Das ist der wichtigste Hebel: Kalendarische Alterung hängt stärker von der **Verweildauer bei hohem SOC** ab als von der Zyklenzahl. Statt der üblichen 10–100 % fährt die Batterie im Normalfall 30–80 %.
+Das ist der wichtigste Hebel: Kalendarische Alterung hängt stärker von der **Verweildauer bei hohem SOC** ab als von der Zyklenzahl. Statt der üblichen 10–100 % fährt die Batterie im Normalfall 30–85 % — und meist deutlich darunter, weil der Deckel aus dem tatsächlichen Bedarf berechnet wird.
 
 **2. Ladeleistungs-Drosselung.** Der Rückstand zum Deckel wird **proportional zur erwarteten Sonne** über den Tag verteilt — nicht gleichmäßig über die Stunden. Fällt 31 % der Restsonne in die aktuelle Stunde, sind auch 31 % des Rückstands erlaubt. Das senkt die C-Rate und verschiebt das Erreichen des Ziel-SOC nach hinten.
 
@@ -49,13 +49,13 @@ An **knappen Tagen** (Tagesprognose unter `priority_window_max_pv_kwh`) gilt des
 
 | | Sommer (38 kWh) | Winter (21 kWh) |
 |---|---|---|
-| SOC-Korridor | 30–80 % | **25–95 %** |
-| nutzbar | 5,3 kWh | **7,5 kWh** |
+| SOC-Korridor | 30–85 % | **25–95 %** |
+| nutzbar | 5,9 kWh | **7,5 kWh** |
 | 11–15 Uhr | gedrosselt | **volle Ladeleistung** |
 
 Die Umschaltung hängt an der **Tagesprognose, nicht am Kalender** — ein trüber Septembertag wird wie ein Wintertag behandelt. Entscheidend ist die Energielage.
 
-Beachte die Asymmetrie: Der Deckel geht deutlich hoch (80 → 95 %), die Untergrenze nur wenig runter (30 → 25 %). Tiefentladung schadet LFP-Zellen mehr als hoher Ladestand.
+Beachte die Asymmetrie: Der Deckel geht deutlich hoch (85 → 95 %), die Untergrenze nur wenig runter (30 → 25 %). Tiefentladung schadet LFP-Zellen mehr als hoher Ladestand.
 
 ### Sicherheit
 
@@ -195,7 +195,7 @@ Zur unabhängigen Kontrolle: Im Kostal-Webinterface unter *Batterieeinstellungen
 | `charging_strategy` | `forecast` | `forecast` = PV-Shaping, `price` = alte Tibber-Logik |
 | `dry_run` | `true` | Keine Schreibzugriffe, nur Logging |
 | `soc_corridor_min` | 30 | Entladegrenze an normalen Tagen (%) |
-| `soc_corridor_max` | 80 | Obergrenze an normalen Tagen (%) |
+| `soc_corridor_max` | 85 | Obergrenze an normalen Tagen (%) |
 | `soc_corridor_min_scarce` | 25 | Entladegrenze an knappen Tagen (%) |
 | `soc_corridor_max_scarce` | 95 | Obergrenze an knappen Tagen (%) |
 | `soc_hard_safety_min` | 15 | Notbremse: darunter Entladen gestoppt (%) |
