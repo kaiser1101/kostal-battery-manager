@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.13.4] - 2026-08-16
+
+### Changed
+- **Dokumentation auf den Stand von v0.13.3 gebracht.** README beschrieb
+  noch die in v0.11.0 entfernte Nachtsperre, nannte die Betriebsart falsch
+  und kannte weder saisonalen Korridor, Vorrangfenster,
+  Knappheitserkennung, HA-Entitaeten noch Wirkungskontrolle.
+- **Zielsetzung klargestellt:** Das Ziel ist Autarkie - der Speicher soll
+  durch die Sonne so weit gefuellt werden, dass abends kein Netzstrom
+  gekauft werden muss. Die Schonung der Batterie nimmt nur heraus, was
+  ueber den tatsaechlichen Bedarf hinaus gespeichert wuerde. "Nicht vom
+  Netz laden" ist die Technik dahinter, nicht der Zweck.
+- Die Zusage zur Drosselung explizit dokumentiert: Gedrosselt wird nur bei
+  nachweislichem Ueberschuss (`throttle_scarcity_factor`), die Drosselung
+  kann den Speicher also nicht abends leeren.
+
+### Fixed
+- CONFIGURATION.md empfahl fuer die `forecast`-Strategie **Modus 0
+  (intern)**. Das ist falsch - in Modus 0 ignoriert der Wechselrichter
+  alle vier Limit-Register. Korrekt ist Modus 1 ("Extern ueber Digital
+  I/O") ohne verdrahtete Eingaenge. An realer Hardware verifiziert.
+- Der Abschnitt "Nachtsperre" beschrieb ein seit v0.11.0 entferntes
+  Verhalten. Ergaenzt um die Begruendung: Grenzwerte bleiben im
+  Wechselrichter stehen, ein haengengebliebenes 0-W-Limit haette die
+  Batterie dauerhaft blockiert.
+
 ## [0.13.3] - 2026-08-16
 
 ### Added

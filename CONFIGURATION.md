@@ -135,9 +135,13 @@ An ertragreichen Tagen bleibt das Fenster inaktiv, weil die Energie ohnehin reic
 
 Untergrenze der gedrosselten Leistung. Verhindert, dass bei winzigem Restbedarf unrealistisch kleine Werte gesetzt werden.
 
-### Nachtsperre (automatisch)
+### Keine Nachtsperre (seit v0.11.0 entfernt)
 
-Außerhalb der PV-Stunden wird das Ladelimit auf **0 W** gesetzt. Ladung könnte dort nur aus dem Netz kommen. Das ist nicht konfigurierbar und folgt direkt aus dem Grundsatz „keine Netzladung".
+Frühere Versionen setzten außerhalb der PV-Stunden das Ladelimit auf **0 W**. Das ist entfernt worden, und zwar aus einem handfesten Grund: **Geschriebene Grenzwerte bleiben im Wechselrichter stehen**, auch wenn das Add-on stoppt. Ein hängengebliebenes 0-W-Limit hätte die Batterie unbemerkt dauerhaft blockiert — ausgerechnet der Zustand, der die Autarkie am teuersten kostet.
+
+Die Sperre war ohnehin wirkungslos: Da nie Leistungs-Sollwerte geschrieben werden, kann der Wechselrichter nachts gar nicht aus dem Netz laden. Es gab nichts zu verhindern.
+
+Das Add-on schreibt deshalb **nirgends 0 W** als Grenzwert.
 
 ## Kalibrierladung
 
@@ -405,9 +409,15 @@ Das ist einerseits gut (keine Abhängigkeit von durchgehendem Betrieb), erforder
 | 1 | Extern via digital I/O |
 | 2 | Extern via MODBUS |
 
-Die `forecast`-Strategie ist für **Modus 0** entworfen: der Wechselrichter führt seine eigene Eigenverbrauchs-Optimierung aus, und die Limit-Register geben nur den Rahmen vor.
+Die `forecast`-Strategie braucht **Modus 1** — „Extern über Digital I/O", ohne dass die Digitaleingänge verdrahtet sind.
 
-In Modus 2 erwartet das Gerät stattdessen Leistungs-Setpoints auf Register 1034 — die diese Strategie bewusst nie schreibt, weil sie nachts Netzstrom ziehen würden. Steht dein Wechselrichter auf Modus 2 (z. B. als Überbleibsel der Preisstrategie), stelle ihn im Kostal-Webinterface unter *Service → Batterie* auf interne Steuerung zurück und prüfe anschließend mit dem Registertest, ob die Limits weiterhin angenommen werden.
+Das wirkt widersprüchlich, ist aber die einzige Kombination, die funktioniert:
+
+- **Modus 0 (intern):** Der Wechselrichter ignoriert alle vier Limit-Register. Das Add-on schreibt, der Rückleseabgleich bestätigt sogar — aber die Batterie hält sich an nichts davon. *(Frühere Versionen dieser Doku empfahlen Modus 0. Das war falsch und ist an realer Hardware widerlegt worden.)*
+- **Modus 1 (digital I/O):** Sind keine Eingänge verdrahtet, gelten laut Befehlstabelle des Geräts alle als inaktiv — „kein externer Zugriff, interne Batteriesteuerung aktiv". Die Eigenverbrauchs-Optimierung läuft also normal weiter, gleichzeitig ist externes Management nominell aktiv und die Limit-Register wirken. Kein Timeout.
+- **Modus 2 (Modbus):** Das Gerät erwartet laufend Leistungs-Setpoints auf Register 1034. Bleiben sie aus — und diese Strategie schreibt sie bewusst nie —, setzt die Firmware nach Ablauf des Timeouts beide Leistungsgrenzen auf 0 und **blockiert die Batterie vollständig**.
+
+Steht dein Wechselrichter nicht auf Modus 1, stelle ihn im Kostal-Webinterface unter *Service → Batterie → Batteriesteuerung* auf „Extern über Digital I/O" und prüfe anschließend mit dem Haltetest, ob ein geschriebener Grenzwert über Minuten stehen bleibt. Der Registertest allein genügt nicht: Er zeigt nur, dass geschrieben werden *kann*, nicht dass der Wert *wirkt*.
 
 > Das Umschalten über das Add-on erfordert `installer_password` und `master_password` in der Konfiguration. Ohne diese geht es nur über das Webinterface.
 
