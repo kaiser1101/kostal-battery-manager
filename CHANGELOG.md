@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.8] - 2026-08-16
+
+### Added
+- **Positive Bestaetigung der Registeruebernahme.** Im Scharfbetrieb wurde
+  die Rueckmeldung bisher nur bei Abweichung geloggt - der Erfolgsfall war
+  Schweigen, und gerade beim ersten scharfen Schreibvorgang musste man die
+  Abwesenheit einer Warnung deuten. Jetzt meldet das Add-on
+  `Wechselrichter bestaetigt: SOC-Korridor 30.0-80.0%, laden max 500.0W`,
+  und zwar nur bei Aenderung, damit die 10-Minuten-Auffrischung das Log
+  nicht flutet.
+
 ## [0.12.7] - 2026-08-16
 
 ### Fixed

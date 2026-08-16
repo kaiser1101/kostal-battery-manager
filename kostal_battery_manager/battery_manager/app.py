@@ -2402,6 +2402,7 @@ def controller_loop():
                                 ist = ' · '.join(f"{k}={v}" for k, v in sorted(readback.items()))
                                 add_log('INFO', f'[DRY-RUN] Register-Ist-Zustand: {ist}')
                             else:
+                                abweichungen = []
                                 for key, target in (('max_soc', plan['max_soc']),
                                                     ('min_soc', plan['min_soc']),
                                                     ('max_charge_power', plan['max_charge_power']),
@@ -2411,8 +2412,22 @@ def controller_loop():
                                         continue
                                     tolerance = 1.0 if 'soc' in key else 50.0
                                     if abs(actual - target) > tolerance:
-                                        add_log('WARNING', f"Register-Rueckmeldung weicht ab: "
-                                                           f"{key} gesetzt={target} gelesen={actual}")
+                                        abweichungen.append(f"{key} gesetzt={target} gelesen={actual}")
+
+                                if abweichungen:
+                                    add_log('WARNING', 'Register-Rueckmeldung weicht ab: '
+                                                       + ' | '.join(abweichungen))
+                                else:
+                                    # Positive Bestaetigung, nicht nur Schweigen bei Erfolg -
+                                    # sonst muss man die Abwesenheit einer Warnung deuten.
+                                    # Nur bei Aenderung, damit die 10-Minuten-Auffrischung
+                                    # das Log nicht flutet.
+                                    bestaetigung = (f"SOC-Korridor {readback.get('min_soc')}"
+                                                    f"-{readback.get('max_soc')}%, "
+                                                    f"laden max {readback.get('max_charge_power')}W")
+                                    if bestaetigung != app_state.get('_letzte_bestaetigung'):
+                                        add_log('INFO', f'Wechselrichter bestaetigt: {bestaetigung}')
+                                        app_state['_letzte_bestaetigung'] = bestaetigung
 
                         app_state['inverter']['mode'] = f"shaping_{plan['mode']}"
 
