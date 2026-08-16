@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.12.6] - 2026-08-16
+
+### Fixed
+- **Log-Flut durch den Ueberbrueckungsbedarf.** Die Zeile samt stundenweiser
+  Aufschluesselung wurde in JEDEM Regelzyklus geschrieben - alle 30
+  Sekunden, rund 2900 identische Zeilen pro Tag, obwohl sich der Wert nur
+  zweimal taeglich aendert. Echte Meldungen gingen darin unter. Jetzt auf
+  INFO nur bei Aenderung, sonst DEBUG.
+
 ## [0.12.5] - 2026-08-15
 
 ### Fixed

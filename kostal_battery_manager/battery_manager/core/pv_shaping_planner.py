@@ -47,6 +47,7 @@ class PVShapingPlanner:
         self.consumption_learner = None
         self.forecast_solar_api = None
         self.last_overnight_breakdown = []
+        self._last_logged_need = None
 
         self.state_path = state_path
         self._state = self._load_state()
@@ -232,9 +233,18 @@ class PVShapingPlanner:
 
         self.last_overnight_breakdown = breakdown
         detail = ' '.join(f"{b['hour']:02d}h={b['kwh']:.2f}" for b in breakdown)
-        logger.info(f"Ueberbrueckungsbedarf {need:.2f} kWh (Sonnenuntergang {sunset}:00 -> "
-                    f"Sonnenaufgang {sunrise_tomorrow}:00, "
-                    f"{night_hours}h) | {detail}")
+        meldung = (f"Ueberbrueckungsbedarf {need:.2f} kWh (Sonnenuntergang {sunset}:00 -> "
+                   f"Sonnenaufgang {sunrise_tomorrow}:00, {night_hours}h) | {detail}")
+
+        # Nur bei Aenderung auf INFO. Der Wert aendert sich zweimal taeglich,
+        # der Regeltakt laeuft aber alle 30 Sekunden - unveraendert geloggt
+        # waeren das rund 2900 identische Zeilen pro Tag, in denen echte
+        # Meldungen untergehen.
+        if abs(need - (self._last_logged_need or -1)) > 0.05:
+            logger.info(meldung)
+            self._last_logged_need = need
+        else:
+            logger.debug(meldung)
         return need
 
     def calculate_tomorrow_shortfall_kwh(self, ha_client, config, now: datetime) -> float:
