@@ -2181,7 +2181,11 @@ def release_limits_on_shutdown():
     if config.get('charging_strategy', 'forecast') != 'forecast':
         return
     try:
-        modbus_client.release_limits(max_power=config.get('max_charge_power'))
+        # Ohne max_power: dann greifen die beim Start vorgefundenen Werte.
+        # Vorher wurde hier max_charge_power aus der Konfiguration
+        # uebergeben - das ueberschrieb den Geraetewert und liess nach dem
+        # Beenden eine Begrenzung stehen, die niemand gesetzt hatte.
+        modbus_client.release_limits()
     except Exception as e:
         logger.error(f"Konnte Grenzwerte beim Beenden nicht freigeben: {e}")
 

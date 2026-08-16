@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.12.9] - 2026-08-16
+
+### Fixed
+- **Freigabe beim Beenden stellte die Ladeleistung nicht wieder her.**
+  Uebergeben wurde `max_charge_power` aus der Konfiguration statt des beim
+  Start vorgefundenen Geraetewerts. Nach dem Beenden blieb dadurch eine
+  Begrenzung stehen, die niemand gesetzt hatte - an realer Hardware 4300 W
+  statt der ~4450 W des Wechselrichters. Die SOC-Register wurden korrekt
+  zurueckgesetzt, nur die Leistung nicht.
+
 ## [0.12.8] - 2026-08-16
 
 ### Added
