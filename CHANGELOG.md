@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.13.1] - 2026-08-16
+
+### Added
+- **Vorrangfenster fuer knappe Tage** (`priority_window_start`/`_end`,
+  Standard 11-15 Uhr): In diesen Stunden wird nicht gedrosselt, solange die
+  Tagesprognose unter `priority_window_max_pv_kwh` (Standard 25 kWh) liegt.
+  An kurzen Wintertagen faellt fast die gesamte Erzeugung in wenige
+  Mittagsstunden. Was dort nicht gespeichert wird, muss abends zum vollen
+  Bezugspreis nachgekauft werden, waehrend der ungenutzte Ueberschuss zum
+  kleinen Einspeisetarif weggeht. Autarkie geht dann vor Schonung.
+  An ertragreichen Tagen bleibt das Fenster inaktiv.
+
 ## [0.13.0] - 2026-08-16
 
 ### Fixed

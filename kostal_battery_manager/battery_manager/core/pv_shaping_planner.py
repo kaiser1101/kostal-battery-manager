@@ -43,6 +43,15 @@ class PVShapingPlanner:
         # Ab welchem Verhaeltnis Ueberschuss/Rueckstand ueberhaupt gedrosselt
         # wird. Darunter herrscht Knappheit, und Drosseln kostet nur Energie.
         self.scarcity_factor = config.get('throttle_scarcity_factor', 1.5)
+        # Vorrangfenster: In diesen Stunden wird nicht gedrosselt, sobald der
+        # Tag knapp ist. An kurzen Wintertagen faellt fast die gesamte
+        # Erzeugung in wenige Mittagsstunden - was dort nicht in die Batterie
+        # geht, fehlt abends und muss aus dem Netz kommen.
+        self.priority_start = config.get('priority_window_start', 11)
+        self.priority_end = config.get('priority_window_end', 15)
+        # Oberhalb dieser Tagesprognose ist genug Energie da, das Fenster
+        # bleibt dann inaktiv und es wird normal gedrosselt. 0 = immer aktiv.
+        self.priority_max_pv = config.get('priority_window_max_pv_kwh', 25.0)
         self.enable_charge_throttling = config.get('enable_charge_throttling', True)
         self.calibration_interval_days = config.get('calibration_interval_days', 28)
         self.calibration_min_pv_kwh = config.get('calibration_min_pv_kwh', 15.0)
@@ -312,6 +321,28 @@ class PVShapingPlanner:
     # ------------------------------------------------------------------
     # Hauptberechnung
     # ------------------------------------------------------------------
+    def _im_vorrangfenster(self, now: datetime, pv_today: Dict[int, float]) -> bool:
+        """
+        Liegt die aktuelle Stunde im Vorrangfenster eines knappen Tages?
+
+        An kurzen Wintertagen faellt fast die gesamte Erzeugung in wenige
+        Mittagsstunden. Was dort nicht gespeichert wird, fehlt abends und
+        muss aus dem Netz nachgekauft werden - zum vollen Bezugspreis,
+        waehrend der ungenutzte Ueberschuss zum kleinen Einspeisetarif
+        weggeht. In dieser Lage ist Autarkie mehr wert als die letzte
+        Schonung der Zellen.
+
+        An ertragreichen Tagen (ueber `priority_window_max_pv_kwh`) bleibt
+        das Fenster inaktiv - dort reicht die Energie ohnehin, und die
+        Drosselung kostet nichts.
+        """
+        if not (self.priority_start <= now.hour <= self.priority_end):
+            return False
+        if self.priority_max_pv <= 0:
+            return True
+        pv_tag = sum(pv_today.values()) if pv_today else 0.0
+        return 0 < pv_tag < self.priority_max_pv
+
     def _measured_soc_today(self, ha_client, config, now: datetime) -> Dict[int, float]:
         """
         Gemessener SOC je Stunde seit Mitternacht.
@@ -660,6 +691,13 @@ class PVShapingPlanner:
                 max_charge_power = float(self.min_charge_power)
                 throttle_reason = (f'Ziel-SOC {max_soc:.1f}% erreicht - '
                                    f'Deckel stoppt das Laden')
+            elif self._im_vorrangfenster(now, pv_today):
+                pv_tag = sum(pv_today.values())
+                max_charge_power = configured_max_power
+                throttle_reason = (f'Vorrangfenster {self.priority_start}-{self.priority_end} Uhr '
+                                   f'bei knapper Tagesprognose ({pv_tag:.1f} kWh) - '
+                                   f'volle Ladeleistung, damit abends weniger Netzbezug noetig ist')
+
             elif rest_ueberschuss < deficit_kwh * self.scarcity_factor:
                 # Knappheit: Der erwartete Ueberschuss reicht kaum fuer den
                 # Rueckstand. Jede gedrosselte Kilowattstunde ist endgueltig

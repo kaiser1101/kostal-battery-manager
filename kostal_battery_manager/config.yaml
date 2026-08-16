@@ -1,5 +1,5 @@
 name: Kostal Battery Manager edited by Phil
-version: "0.13.0"
+version: "0.13.1"
 slug: kostal_battery_manager
 description: "description: Intelligente Batteriesteuerung für Kostal Plenticore Plus mit PV-Prognose, Verbrauchslernen, intelligenter SOC-Optimierung und bedarfsgerechter Batterieladung"
 url: "https://github.com/kaiser1101/kostal-battery-manager.git"
@@ -100,6 +100,14 @@ options:
   # gedrosselt wird. Darunter herrscht Knappheit - dann kostet Drosseln nur
   # Energie, statt sie sinnvoll zu verteilen. 1.5 = erst ab 50% Ueberdeckung.
   throttle_scarcity_factor: 1.5
+  # Vorrangfenster: In diesen Stunden wird an knappen Tagen NICHT gedrosselt.
+  # An kurzen Wintertagen faellt fast die gesamte Erzeugung in wenige
+  # Mittagsstunden - was dort nicht gespeichert wird, muss abends teuer aus
+  # dem Netz kommen. Autarkie geht dann vor Schonung.
+  priority_window_start: 11
+  priority_window_end: 15
+  # Nur an Tagen unterhalb dieser Prognose aktiv. 0 = immer aktiv.
+  priority_window_max_pv_kwh: 25.0
   # Entladegrenze in W. 0 = Limit des Wechselrichters uebernehmen (empfohlen).
   # Hat nichts mit max_charge_power zu tun.
   max_discharge_power: 0
@@ -153,6 +161,9 @@ schema:
   enable_charge_throttling: bool
   min_charge_power: int(0,10000)
   throttle_scarcity_factor: float(1.0,5.0)
+  priority_window_start: int(0,23)
+  priority_window_end: int(0,23)
+  priority_window_max_pv_kwh: float(0.0,200.0)
   max_discharge_power: int(0,20000)
   calibration_interval_days: int(0,365)
   calibration_min_pv_kwh: float(0.0,200.0)

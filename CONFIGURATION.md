@@ -82,6 +82,25 @@ Nur setzen, wenn du das Entladen bewusst drosseln willst (z. B. um Lastspitzen a
 
 Im Sicherheitsfall (`soc_hard_safety_min` unterschritten) wird die Grenze unabhängig davon auf 0 W gesetzt.
 
+### Vorrangfenster für knappe Tage
+
+```yaml
+priority_window_start: 11
+priority_window_end: 15
+priority_window_max_pv_kwh: 25.0   # 0 = Fenster immer aktiv
+```
+
+In diesen Stunden wird **nicht gedrosselt**, solange die Tagesprognose unter `priority_window_max_pv_kwh` liegt.
+
+**Warum:** An kurzen Wintertagen fällt fast die gesamte Erzeugung in wenige Mittagsstunden. Was dort nicht in die Batterie geht, fehlt abends und muss aus dem Netz nachgekauft werden — zum vollen Bezugspreis, während der ungenutzte Überschuss zum kleinen Einspeisetarif weggeht. In dieser Lage ist Autarkie mehr wert als die letzte Schonung der Zellen.
+
+An ertragreichen Tagen bleibt das Fenster inaktiv, weil die Energie ohnehin reicht und die Drosselung dann nichts kostet:
+
+| Tag | 11:00 | 13:00 | 15:00 |
+|---|---|---|---|
+| Winter, 21 kWh Prognose | 4300 W | 4300 W | 4300 W |
+| Sommer, 38 kWh Prognose | 684 W | 1322 W | 4300 W |
+
 ### `min_charge_power` (Standard: 500 W)
 
 Untergrenze der gedrosselten Leistung. Verhindert, dass bei winzigem Restbedarf unrealistisch kleine Werte gesetzt werden.
