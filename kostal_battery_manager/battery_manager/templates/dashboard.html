@@ -1165,21 +1165,11 @@ function initCharts() {
                         segment: { borderDash: dashAbJetzt }
                     },
                     {
-                        // Prognose: durchgehend gestrichelt, auch rueckwirkend -
-                        // sie war nie eine Messung.
                         type: 'line', label: 'PV-Prognose', data: [],
                         borderColor: gold, backgroundColor: goldFill,
-                        borderWidth: 2, pointRadius: 0, tension: 0.35,
-                        borderDash: [7, 5], fill: 'origin',
-                        yAxisID: 'y-kw', order: 3
-                    },
-                    {
-                        // Tatsaechliche Erzeugung aus den DC-Straengen.
-                        // Endet an der aktuellen Stunde.
-                        type: 'line', label: 'PV tatsächlich', data: [],
-                        borderColor: '#c98f00', backgroundColor: 'transparent',
-                        borderWidth: 2.5, pointRadius: 0, tension: 0.25,
-                        spanGaps: false, yAxisID: 'y-kw', order: 1
+                        borderWidth: 2.5, pointRadius: 0, tension: 0.35,
+                        fill: 'origin', yAxisID: 'y-kw', order: 3,
+                        segment: { borderDash: dashAbJetzt }
                     },
                     {
                         type: 'line', label: 'Verbrauch', data: [],
@@ -1352,9 +1342,8 @@ function updateOverviewChart() {
             overviewChart.data.labels = labels;
             overviewChart.data.datasets[0].data = data.soc;
             overviewChart.data.datasets[1].data = data.pv;
-            overviewChart.data.datasets[2].data = data.pv_ist || [];
-            overviewChart.data.datasets[3].data = data.verbrauch;
-            overviewChart.data.datasets[4].data = data.batterie;
+            overviewChart.data.datasets[2].data = data.verbrauch;
+            overviewChart.data.datasets[3].data = data.batterie;
             overviewChart.update();
 
             // --- Kopfzeile: was war, was kommt noch ---------------------
@@ -1363,13 +1352,8 @@ function updateOverviewChart() {
             const rest = pvHeute.slice(data.jetzt_index).reduce((a, b) => a + b, 0);
             const gesamt = bisher + rest;
 
-            if (data.pv_ist_verfuegbar) {
-                setText('ov-left-value', data.pv_ist_heute_kwh.toFixed(1) + ' kWh');
-                setText('ov-left-label', 'heute erzeugt (gemessen)');
-            } else {
-                setText('ov-left-value', bisher.toFixed(1) + ' kWh');
-                setText('ov-left-label', 'heute bis jetzt (Prognose)');
-            }
+            setText('ov-left-value', bisher.toFixed(1) + ' kWh');
+            setText('ov-left-label', 'heute bis jetzt');
             setText('ov-right-value', rest.toFixed(1) + ' kWh');
             setText('ov-right-label', 'heute noch erwartet');
 
@@ -1402,13 +1386,8 @@ function updateOverviewChart() {
                   + ` · Ladegrenze heute ${data.max_charge_kw} kW`
                   + ` · durchgezogen = gemessen, gestrichelt = Prognose<br>`
                   + `<span style="opacity:.75">${data.begruendung || ''}</span><br>`
-                  + `<span style="opacity:.6; font-size:.92em">`
-                  + (data.pv_ist_verfuegbar
-                     ? `PV tatsächlich = gemessene DC-Strangleistung, endet an der`
-                       + ` aktuellen Stunde. Die gestrichelte Kurve ist durchgehend Prognose.`
-                     : `Nur Prognose \u2013 fuer die Ist-Erzeugung`
-                       + ` pv_power_now_roof1/2 konfigurieren.`)
-                  + `</span>`;
+                  + `<span style="opacity:.6; font-size:.92em">Die PV-Kurve ist durchgehend`
+                  + ` Prognose \u2013 die tatsächlich erzeugte Leistung wird nicht gemessen.</span>`;
             }
         })
         .catch(err => console.error('Error updating overview chart:', err));

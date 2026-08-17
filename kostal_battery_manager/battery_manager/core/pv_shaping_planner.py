@@ -469,69 +469,6 @@ class PVShapingPlanner:
                     per_hour[hour] = letzter
         return per_hour
 
-    def _gemessene_pv_heute(self, ha_client, config,
-                            now: datetime) -> Dict[int, float]:
-        """
-        Tatsaechlich erzeugte PV-Energie je Stunde seit Mitternacht, in kWh.
-
-        Quelle sind die DC-Strangleistungen des Wechselrichters
-        (`pv_power_now_roof1/2`) - echte Messwerte, im Gegensatz zur
-        Prognose. Beide Straenge werden addiert.
-
-        Integriert wird mit dem Wert des jeweils FRUEHEREN Punktes ueber
-        die Dauer bis zum naechsten: Home Assistant schreibt bei
-        Zustandsaenderung, der Wert gilt also bis zur naechsten Aenderung.
-        Luecken ueber 1 h gelten als Ausfall und werden verworfen - eine
-        Leistung, die stundenlang unveraendert bleibt, gibt es bei PV
-        nicht.
-
-        Rein fuer die Darstellung. Faellt es aus, bleibt die Kurve leer.
-        """
-        if not ha_client:
-            return {}
-
-        mitternacht = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        je_stunde: Dict[int, float] = {}
-
-        for schluessel in ('pv_power_now_roof1', 'pv_power_now_roof2'):
-            sensor = (config.get(schluessel) or '').strip()
-            if not sensor:
-                continue
-            try:
-                attrs = ha_client.get_attributes(sensor) or {}
-                einheit = (attrs.get('unit_of_measurement') or 'W').strip().lower()
-                faktor = {'w': 0.001, 'kw': 1.0}.get(einheit)
-                if faktor is None:
-                    logger.warning(f"{sensor}: unbekannte Einheit '{einheit}' - "
-                                   f"Ist-Erzeugung wird uebersprungen")
-                    continue
-
-                history = ha_client.get_history(sensor, mitternacht, now)
-                punkte = []
-                for eintrag in history or []:
-                    roh = eintrag.get('state')
-                    if roh is None or str(roh).strip().lower() in ('', 'unavailable', 'unknown'):
-                        continue
-                    stempel = eintrag.get('last_changed') or eintrag.get('last_updated')
-                    if not stempel:
-                        continue
-                    try:
-                        ts = datetime.fromisoformat(str(stempel).replace('Z', '+00:00'))
-                        punkte.append((ts.astimezone(now.tzinfo), float(roh)))
-                    except (ValueError, TypeError):
-                        continue
-
-                punkte.sort(key=lambda p: p[0])
-                for (t1, w1), (t2, _) in zip(punkte, punkte[1:]):
-                    stunden = (t2 - t1).total_seconds() / 3600.0
-                    if stunden <= 0 or stunden > 1.0 or w1 <= 0:
-                        continue
-                    je_stunde[t1.hour] = je_stunde.get(t1.hour, 0.0) + w1 * faktor * stunden
-            except Exception as e:
-                logger.debug(f"Ist-Erzeugung aus {sensor} nicht verfuegbar: {e}")
-
-        return je_stunde
-
     def _project_tomorrow(self, ha_client, config, current_soc, battery_capacity,
                           now: datetime, plan: Dict) -> Dict:
         """
@@ -744,10 +681,8 @@ class PVShapingPlanner:
                 logger.debug(f"Gemessener Verbrauch nicht verfuegbar: {e}")
 
         soc_gemessen = self._measured_soc_today(ha_client, config, now)
-        pv_gemessen = self._gemessene_pv_heute(ha_client, config, now)
 
         pv = [None] * 48
-        pv_ist = [None] * 48
         verbrauch = [None] * 48
         soc_reihe = [None] * 48
         batterie = [None] * 48
@@ -755,10 +690,6 @@ class PVShapingPlanner:
         # --- Vergangenheit: gemessen ----------------------------------
         for hour in range(min(jetzt, 24)):
             pv[hour] = round(pv_tage[0].get(hour, 0.0), 3)
-            # Die AKTUELLE Stunde bleibt aus der Ist-Kurve heraus: Sie ist
-            # noch nicht zu Ende und saehe als Einbruch aus, der keiner ist.
-            if hour in pv_gemessen:
-                pv_ist[hour] = round(pv_gemessen[hour], 3)
             gemessen = gemessener_verbrauch.get(hour)
             verbrauch[hour] = round(gemessen if gemessen is not None
                                     else gelernt(hour, heute), 3)
@@ -813,7 +744,6 @@ class PVShapingPlanner:
             'datum_heute': heute.isoformat(),
             'datum_morgen': morgen.isoformat(),
             'pv': pv,
-            'pv_ist': pv_ist,
             'verbrauch': verbrauch,
             'soc': soc_reihe,
             'batterie': batterie,
@@ -821,8 +751,6 @@ class PVShapingPlanner:
             'corridor_max': max_soc,
             'max_charge_kw': round(max_charge_kwh_tag[0], 2),
             'pv_heute_kwh': round(sum(pv_tage[0].values()), 1),
-            'pv_ist_heute_kwh': round(sum(v for v in pv_ist if v), 2),
-            'pv_ist_verfuegbar': any(v is not None for v in pv_ist),
             'pv_morgen_kwh': round(sum(pv_tage[1].values()), 1),
             'verbrauch_heute_kwh': round(sum(v for v in verbrauch[:24] if v), 1),
             'verbrauch_morgen_kwh': round(sum(v for v in verbrauch[24:] if v), 1),
@@ -830,8 +758,8 @@ class PVShapingPlanner:
             'geladen_morgen_kwh': round(geladen_morgen, 1),
             'modus': plan['mode'],
             'begruendung': plan['reason'],
-            # `pv` ist durchgehend Prognose, `pv_ist` die gemessene
-            # Erzeugung aus den DC-Straengen - nur fuer vergangene Stunden.
+            # PV liegt auch fuer die Vergangenheit nur als Prognose vor -
+            # ein Messwert der tatsaechlichen Erzeugung existiert nicht.
             'pv_ist_prognose': True,
         }
 

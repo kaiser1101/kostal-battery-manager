@@ -872,10 +872,10 @@ def api_effectiveness():
         else:
             grund = (f'{sensor} liefert aktuell "{current}", die History-API gibt aber '
                      f'fuer keinen Zeitraum Daten zurueck. Moegliche Ursachen: die Entitaet '
-                     f'ist vom Recorder ausgeschlossen (recorder: exclude in '
-                     f'configuration.yaml), die Aufzeichnung wurde erst kuerzlich aktiviert, '
-                     f'oder die Anfrage selbst ist fehlerhaft - der genaue Zeitstempel steht '
-                     f'in der Meldung von Home Assistant.')
+                     f'wurde umbenannt und die aeltere Historie liegt unter dem alten Namen, '
+                     f'sie ist vom Recorder ausgeschlossen (recorder: exclude in '
+                     f'configuration.yaml), oder die Aufzeichnung wurde erst kuerzlich '
+                     f'aktiviert. Pruefe den Verlauf der Entitaet direkt in Home Assistant.')
 
         if fehler:
             grund += f' | Meldung von Home Assistant: {fehler}'

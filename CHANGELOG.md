@@ -2,21 +2,23 @@
 
 ## [0.15.1] - 2026-08-17
 
+### Changed
+- **Diagramm auf den Stand von v0.14.0 zurueckgenommen.** Die in v0.15.0
+  ergaenzte Ist-Kurve der PV-Erzeugung ist wieder entfernt.
+
 ### Fixed
-- **Die Wirkungskontrolle fand nie Historie.** Nicht der Recorder war die
-  Ursache, sondern das Format des Zeitstempels: `datetime.now()` liefert
-  eine Zeit OHNE Zeitzone und MIT Mikrosekunden, und darauf antwortet die
-  History-API von Home Assistant mit HTTP 200 und einer leeren Liste -
-  also genau so, wie wenn es wirklich keine Daten gaebe.
-  Im Log desselben Geraets, elf Sekunden auseinander:
-  `2026-08-17T00:00:00+02:00` -> 50 Eintraege,
-  `2026-08-10T18:52:08.203243` -> nichts.
-  Zeitstempel werden jetzt zentral in `get_history()` normalisiert, damit
-  kein Aufrufer den Fehler wiederholen kann.
-- Die Fehlermeldung behauptete daraufhin, die Entitaet sei "wahrscheinlich
-  vom Recorder ausgeschlossen". Sie nennt jetzt mehrere moegliche Ursachen
-  und den tatsaechlich gesendeten Zeitstempel, statt sich auf eine
-  festzulegen.
+- Die Fehlermeldung der Wirkungskontrolle legte sich darauf fest, die
+  Entitaet sei "wahrscheinlich vom Recorder ausgeschlossen". Sie nennt
+  jetzt auch die wahrscheinlichere Ursache: eine umbenannte Entitaet,
+  deren aeltere Historie unter dem alten Namen liegt.
+
+### Zurueckgenommen
+- Die in v0.15.1 zunaechst eingebaute Normalisierung der Zeitstempel in
+  `get_history()` ist wieder entfernt. Sie beruhte auf der Annahme, ein
+  fehlender Zeitzonen-Offset lasse die History-API leer antworten - das
+  Log widerlegt es: Im selben Lauf lieferte ein naiver Zeitstempel fuer
+  `home_power` 327 Eintraege und fuer `battery_soc` nichts. Der
+  Unterschied liegt an der Entitaet, nicht am Format.
 
 ## [0.15.0] - 2026-08-17
 
