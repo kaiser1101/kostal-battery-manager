@@ -242,12 +242,28 @@ class ModbusClient:
             force = True
             self._last_limit_refresh = nowts
 
+        # Toleranz je Groesse: Unterhalb davon ist eine Aenderung ohne
+        # praktische Wirkung, erzeugt aber einen Schreibzugriff. Der
+        # Wechselrichter speichert SOC ohnehin nur in ganzen Prozent, und
+        # ein Ladelimit auf 30 W genau zu treffen ist bedeutungslos.
+        #
+        # Ohne die Toleranz schrieb die Regelschleife alle 30 s neu, weil
+        # der berechnete Wert mit dem SOC leicht mitwandert.
+        toleranz = {
+            'max_charge_power': 50.0,      # W
+            'max_discharge_power': 50.0,   # W
+            'min_soc': 0.5,                # %
+            'max_soc': 0.5,                # %
+        }
+
         report = {'written': [], 'failed': [], 'skipped': []}
         for name, value, setter in targets:
             if value is None:
                 continue
             value = round(float(value), 1)
-            if not force and self.last_limits.get(name) == value:
+            vorher = self.last_limits.get(name)
+            if (not force and vorher is not None
+                    and abs(vorher - value) < toleranz.get(name, 0.0)):
                 report['skipped'].append(name)
                 continue
             if setter(value):

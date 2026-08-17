@@ -33,7 +33,9 @@ Das ist der wichtigste Hebel: Kalendarische Alterung hängt stärker von der **V
 
 Die Rechnung läuft in jedem Regelzyklus neu: Ziehen Wolken auf, steigt die erlaubte Leistung automatisch.
 
-**3. Knappheitserkennung.** Deckt der erwartete Restüberschuss den Rückstand nur knapp, wird **gar nicht gedrosselt**. Drosseln ergibt nur Sinn, wenn mehr Überschuss da ist als gebraucht wird — sonst verteilt man Knappheit und verliert Energie endgültig.
+**3. Knappheitserkennung.** An **knappen Tagen** wird gar nicht gedrosselt, wenn der erwartete Restüberschuss den Rückstand nur knapp deckt. Drosseln ergibt nur Sinn, wenn mehr Überschuss da ist als gebraucht wird — sonst verteilt man Knappheit und verliert Energie endgültig.
+
+Die Bindung an den *Tag* ist wesentlich: Der Restüberschuss schrumpft im Tagesverlauf zwangsläufig, das Verhältnis Überschuss/Rückstand ist ab dem späten Nachmittag also auch an Sonnentagen erfüllt. Ohne diese Bindung löste die Regel jeden Abend aus. An ertragreichen Tagen genügt die anteilige Verteilung — liegt der Speicher zurück, wächst der erlaubte Anteil dort von selbst.
 
 Das ist die Zusage, an der die ganze Strategie hängt: **Gedrosselt wird nur, wenn nachweislich mehr Sonne kommt als der Speicher noch braucht.** Reicht sie knapp — Faktor `throttle_scarcity_factor`, Standard 1,5 — lädt die Batterie mit voller Leistung. Der Speicher wird also nicht deshalb abends leer, weil mittags gedrosselt wurde. Wird es trotz guter Prognose bewölkt, korrigiert sich das von selbst: Die Rechnung läuft alle 30 Sekunden neu, und ein schrumpfender Restüberschuss hebt die erlaubte Leistung sofort wieder an.
 

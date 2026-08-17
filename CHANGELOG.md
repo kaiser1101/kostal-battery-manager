@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.15.0] - 2026-08-17
+
+### Fixed
+- **Die Drosselung schaltete sich jeden Abend ab.** Die Knappheitsregel
+  ("Ueberschuss deckt den Rueckstand nur knapp -> volle Ladeleistung")
+  war fuer kurze Wintertage gedacht, hing aber nur am Verhaeltnis
+  Restueberschuss/Rueckstand. Gegen Sonnenuntergang geht der
+  Restueberschuss zwangslaeufig gegen null - damit war die Bedingung
+  taeglich erfuellt, auch an 38-kWh-Sonnentagen.
+  An realer Hardware beobachtet: von 14:54 bis 17:26 durchgehend 500 W,
+  ab 17:31 dann 4300 W. Liegt die Prognose abends zu niedrig - was
+  regelmaessig vorkommt - laedt die Batterie dann mit voller Leistung.
+  Die Regel ist jetzt an `ist_knapper_tag` gebunden.
+- **Neue Abbruchbedingung "Tagesende":** Unter 0,5 kWh erwartetem
+  Restueberschuss gibt es nichts mehr zu verteilen und erst recht nichts
+  zu retten - die Grenze bleibt unten.
+- **Rueckstand nahe null.** Direkt am Ziel-SOC schwankt der Rueckstand um
+  wenige Zehntel, und jeder Vergleich mit ihm wird bedeutungslos. Ab
+  jetzt gilt der Ziel-SOC unterhalb von 0,3 kWh Rueckstand als erreicht.
+- **Flattern zwischen 500 W und 4300 W im Sekundenabstand** (im Log:
+  17:47:00 -> 500 W, 17:47:32 -> 4300 W). Der Wechsel in die Knappheit
+  hat jetzt eine Hysterese von 35 %.
+- **Schreibzugriffe bei jedem Zehntel.** Der SOC-Deckel folgt dem
+  erwarteten Fehlbetrag fuer morgen und wanderte im Log zwischen 73,0 %
+  und 83,6 % - jede Aenderung ein Schreibvorgang, obwohl der
+  Wechselrichter nur ganze Prozent speichert. Jetzt mit Totband
+  (1,5 Prozentpunkte) und Schreibtoleranz (50 W / 0,5 %).
+
+### Added
+- **Tatsaechliche PV-Erzeugung im Diagramm**, neben der Prognose. Quelle
+  sind die DC-Strangleistungen des Wechselrichters
+  (`pv_power_now_roof1/2`), stundenweise integriert. Durchgezogen =
+  gemessen, gestrichelt = Prognose. Damit ist sichtbar, ob
+  Forecast.Solar am eigenen Standort systematisch danebenliegt - genau
+  die Ursache, die den abendlichen Volllastfall ausgeloest hat.
+- Diagnosewerte `soc_deckel_roh` und `knappheit_aktiv`, damit Totband und
+  Hysterese nichts verbergen.
+
 ## [0.14.0] - 2026-08-16
 
 ### Added

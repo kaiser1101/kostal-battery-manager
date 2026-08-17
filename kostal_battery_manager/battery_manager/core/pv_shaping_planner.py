@@ -32,6 +32,22 @@ logger = logging.getLogger(__name__)
 class PVShapingPlanner:
     """Berechnet Batterie-Grenzwerte aus PV-Prognose und gelerntem Verbrauch."""
 
+    # Unterhalb dieses Restueberschusses ist der Tag zu Ende - dann gibt es
+    # nichts mehr zu verteilen und erst recht nichts zu retten.
+    REST_UEBERSCHUSS_MIN_KWH = 0.5
+    # Unterhalb dieses Rueckstands gilt der Ziel-SOC als erreicht. Nahe null
+    # wird jeder Vergleich mit dem Rueckstand bedeutungslos.
+    DEFICIT_MIN_KWH = 0.3
+    # Hysterese: Aus der Knappheit heraus muss der Ueberschuss deutlicher
+    # reichen als fuer den Eintritt noetig war. Sonst kippt der Modus bei
+    # jedem Zehntel kWh hin und her - beobachtet als Wechsel zwischen 500 W
+    # und 4300 W im Abstand von 32 Sekunden.
+    KNAPPHEIT_HYSTERESE = 1.35
+    # Totband fuer den SOC-Deckel. Der Wechselrichter speichert ohnehin nur
+    # ganze Prozent; ohne Totband erzeugt jede Prognoseaktualisierung einen
+    # Schreibvorgang, obwohl sich am Geraet nichts aendert.
+    SOC_TOTBAND_PROZENT = 1.5
+
     def __init__(self, config: Dict, state_path: str = '/data/pv_shaping_state.json'):
         self.soc_corridor_min = config.get('soc_corridor_min', 30)
         self.soc_corridor_max = config.get('soc_corridor_max', 85)
@@ -73,6 +89,11 @@ class PVShapingPlanner:
         self.forecast_solar_api = None
         self.last_overnight_breakdown = []
         self._last_logged_need = None
+        # Laufender Zustand fuer Hysterese und Totband. Bewusst nur im
+        # Arbeitsspeicher: Nach einem Neustart soll frisch entschieden
+        # werden, nicht auf Basis einer alten Lage.
+        self._knappheit_aktiv = False
+        self._letzter_max_soc = None
 
         self.state_path = state_path
         self._state = self._load_state()
@@ -350,6 +371,38 @@ class PVShapingPlanner:
         pv_tag = sum(pv_forecast.values()) if pv_forecast else 0.0
         return 0 < pv_tag < self.priority_max_pv
 
+    def _ist_knappheit(self, rest_ueberschuss: float, deficit_kwh: float) -> bool:
+        """
+        Reicht der erwartete Ueberschuss nur knapp fuer den Rueckstand?
+
+        Mit Hysterese: Der Ausstieg aus der Knappheit verlangt einen
+        deutlicheren Ueberschuss als der Einstieg. Ohne sie entscheidet ein
+        Zehntel kWh ueber den gesamten Modus, und das Ladelimit springt
+        zwischen Minimum und Maximum hin und her - an realer Hardware
+        beobachtet als Wechsel von 500 W auf 4300 W binnen 32 Sekunden.
+        """
+        schwelle = deficit_kwh * self.scarcity_factor
+        if self._knappheit_aktiv:
+            schwelle *= self.KNAPPHEIT_HYSTERESE
+        self._knappheit_aktiv = rest_ueberschuss < schwelle
+        return self._knappheit_aktiv
+
+    def _deckel_mit_totband(self, roh_max_soc: float) -> float:
+        """
+        Glaettet den SOC-Deckel, damit nicht jede Prognoseaktualisierung
+        einen Schreibvorgang ausloest.
+
+        Der Deckel folgt dem erwarteten Fehlbetrag fuer morgen und schwankt
+        dadurch im Tagesverlauf um mehrere Prozentpunkte. Da der
+        Wechselrichter nur ganze Prozent speichert, aendert ein Sprung von
+        0.2 Prozentpunkten am Geraet nichts - erzeugt aber einen Schreibzugriff.
+        """
+        if self._letzter_max_soc is None:
+            self._letzter_max_soc = roh_max_soc
+        elif abs(roh_max_soc - self._letzter_max_soc) >= self.SOC_TOTBAND_PROZENT:
+            self._letzter_max_soc = roh_max_soc
+        return self._letzter_max_soc
+
     def _im_vorrangfenster(self, now: datetime, pv_today: Dict[int, float]) -> bool:
         """
         Liegt die aktuelle Stunde im Vorrangfenster eines knappen Tages?
@@ -415,6 +468,69 @@ class PVShapingPlanner:
                 elif letzter is not None:
                     per_hour[hour] = letzter
         return per_hour
+
+    def _gemessene_pv_heute(self, ha_client, config,
+                            now: datetime) -> Dict[int, float]:
+        """
+        Tatsaechlich erzeugte PV-Energie je Stunde seit Mitternacht, in kWh.
+
+        Quelle sind die DC-Strangleistungen des Wechselrichters
+        (`pv_power_now_roof1/2`) - echte Messwerte, im Gegensatz zur
+        Prognose. Beide Straenge werden addiert.
+
+        Integriert wird mit dem Wert des jeweils FRUEHEREN Punktes ueber
+        die Dauer bis zum naechsten: Home Assistant schreibt bei
+        Zustandsaenderung, der Wert gilt also bis zur naechsten Aenderung.
+        Luecken ueber 1 h gelten als Ausfall und werden verworfen - eine
+        Leistung, die stundenlang unveraendert bleibt, gibt es bei PV
+        nicht.
+
+        Rein fuer die Darstellung. Faellt es aus, bleibt die Kurve leer.
+        """
+        if not ha_client:
+            return {}
+
+        mitternacht = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        je_stunde: Dict[int, float] = {}
+
+        for schluessel in ('pv_power_now_roof1', 'pv_power_now_roof2'):
+            sensor = (config.get(schluessel) or '').strip()
+            if not sensor:
+                continue
+            try:
+                attrs = ha_client.get_attributes(sensor) or {}
+                einheit = (attrs.get('unit_of_measurement') or 'W').strip().lower()
+                faktor = {'w': 0.001, 'kw': 1.0}.get(einheit)
+                if faktor is None:
+                    logger.warning(f"{sensor}: unbekannte Einheit '{einheit}' - "
+                                   f"Ist-Erzeugung wird uebersprungen")
+                    continue
+
+                history = ha_client.get_history(sensor, mitternacht, now)
+                punkte = []
+                for eintrag in history or []:
+                    roh = eintrag.get('state')
+                    if roh is None or str(roh).strip().lower() in ('', 'unavailable', 'unknown'):
+                        continue
+                    stempel = eintrag.get('last_changed') or eintrag.get('last_updated')
+                    if not stempel:
+                        continue
+                    try:
+                        ts = datetime.fromisoformat(str(stempel).replace('Z', '+00:00'))
+                        punkte.append((ts.astimezone(now.tzinfo), float(roh)))
+                    except (ValueError, TypeError):
+                        continue
+
+                punkte.sort(key=lambda p: p[0])
+                for (t1, w1), (t2, _) in zip(punkte, punkte[1:]):
+                    stunden = (t2 - t1).total_seconds() / 3600.0
+                    if stunden <= 0 or stunden > 1.0 or w1 <= 0:
+                        continue
+                    je_stunde[t1.hour] = je_stunde.get(t1.hour, 0.0) + w1 * faktor * stunden
+            except Exception as e:
+                logger.debug(f"Ist-Erzeugung aus {sensor} nicht verfuegbar: {e}")
+
+        return je_stunde
 
     def _project_tomorrow(self, ha_client, config, current_soc, battery_capacity,
                           now: datetime, plan: Dict) -> Dict:
@@ -628,8 +744,10 @@ class PVShapingPlanner:
                 logger.debug(f"Gemessener Verbrauch nicht verfuegbar: {e}")
 
         soc_gemessen = self._measured_soc_today(ha_client, config, now)
+        pv_gemessen = self._gemessene_pv_heute(ha_client, config, now)
 
         pv = [None] * 48
+        pv_ist = [None] * 48
         verbrauch = [None] * 48
         soc_reihe = [None] * 48
         batterie = [None] * 48
@@ -637,6 +755,10 @@ class PVShapingPlanner:
         # --- Vergangenheit: gemessen ----------------------------------
         for hour in range(min(jetzt, 24)):
             pv[hour] = round(pv_tage[0].get(hour, 0.0), 3)
+            # Die AKTUELLE Stunde bleibt aus der Ist-Kurve heraus: Sie ist
+            # noch nicht zu Ende und saehe als Einbruch aus, der keiner ist.
+            if hour in pv_gemessen:
+                pv_ist[hour] = round(pv_gemessen[hour], 3)
             gemessen = gemessener_verbrauch.get(hour)
             verbrauch[hour] = round(gemessen if gemessen is not None
                                     else gelernt(hour, heute), 3)
@@ -691,6 +813,7 @@ class PVShapingPlanner:
             'datum_heute': heute.isoformat(),
             'datum_morgen': morgen.isoformat(),
             'pv': pv,
+            'pv_ist': pv_ist,
             'verbrauch': verbrauch,
             'soc': soc_reihe,
             'batterie': batterie,
@@ -698,6 +821,8 @@ class PVShapingPlanner:
             'corridor_max': max_soc,
             'max_charge_kw': round(max_charge_kwh_tag[0], 2),
             'pv_heute_kwh': round(sum(pv_tage[0].values()), 1),
+            'pv_ist_heute_kwh': round(sum(v for v in pv_ist if v), 2),
+            'pv_ist_verfuegbar': any(v is not None for v in pv_ist),
             'pv_morgen_kwh': round(sum(pv_tage[1].values()), 1),
             'verbrauch_heute_kwh': round(sum(v for v in verbrauch[:24] if v), 1),
             'verbrauch_morgen_kwh': round(sum(v for v in verbrauch[24:] if v), 1),
@@ -705,8 +830,8 @@ class PVShapingPlanner:
             'geladen_morgen_kwh': round(geladen_morgen, 1),
             'modus': plan['mode'],
             'begruendung': plan['reason'],
-            # PV liegt auch fuer die Vergangenheit nur als Prognose vor -
-            # ein Messwert der tatsaechlichen Erzeugung existiert nicht.
+            # `pv` ist durchgehend Prognose, `pv_ist` die gemessene
+            # Erzeugung aus den DC-Straengen - nur fuer vergangene Stunden.
             'pv_ist_prognose': True,
         }
 
@@ -844,7 +969,8 @@ class PVShapingPlanner:
             cap_reason += (f'; {anlass} - Deckel von {self.soc_corridor_max:.0f}% '
                            f'auf {obergrenze:.0f}% angehoben')
 
-        max_soc = max(self.soc_corridor_min + 5.0, min(obergrenze, target_soc))
+        roh_max_soc = max(self.soc_corridor_min + 5.0, min(obergrenze, target_soc))
+        max_soc = self._deckel_mit_totband(roh_max_soc)
 
         # --- 4. Entladegrenze -----------------------------------------
         # An knappen Tagen tiefer entladen duerfen, aber nie unter die
@@ -906,11 +1032,18 @@ class PVShapingPlanner:
                 stunden_ueberschuss[h] = u
                 rest_ueberschuss += u
 
-            if deficit_kwh <= 0:
-                # Nicht 0 schreiben: der Wert persistiert, und der SOC-Deckel
-                # (Register 1044) stoppt das Laden ohnehin zuverlaessig.
-                # Ein haengengebliebenes 0-W-Limit waere dagegen unsichtbar
-                # und wuerde die Batterie dauerhaft blockieren.
+            if deficit_kwh <= self.DEFICIT_MIN_KWH:
+                # Praktisch am Ziel. Nicht 0 schreiben: der Wert persistiert,
+                # und der SOC-Deckel (Register 1044) stoppt das Laden ohnehin
+                # zuverlaessig. Ein haengengebliebenes 0-W-Limit waere dagegen
+                # unsichtbar und wuerde die Batterie dauerhaft blockieren.
+                #
+                # Die Schwelle ist nicht 0, sondern DEFICIT_MIN_KWH: Direkt am
+                # Ziel schwankt der Rueckstand um wenige Zehntel, und bei
+                # einem Rueckstand nahe null wird jeder Vergleich mit ihm
+                # bedeutungslos - genau daraus entstand frueher ein Wechsel
+                # zwischen 500 W und voller Leistung im Sekundenabstand.
+                self._knappheit_aktiv = False
                 max_charge_power = float(self.min_charge_power)
                 throttle_reason = (f'Ziel-SOC {max_soc:.1f}% erreicht - '
                                    f'Deckel stoppt das Laden')
@@ -921,13 +1054,39 @@ class PVShapingPlanner:
                                    f'bei knapper Tagesprognose ({pv_tag:.1f} kWh) - '
                                    f'volle Ladeleistung, damit abends weniger Netzbezug noetig ist')
 
-            elif rest_ueberschuss < deficit_kwh * self.scarcity_factor:
+            elif rest_ueberschuss < self.REST_UEBERSCHUSS_MIN_KWH:
+                # Der Tag ist vorbei - es kommt kaum noch Sonne.
+                #
+                # Ohne diese Pruefung schlug die Knappheitserkennung JEDEN
+                # Abend an: Gegen Sonnenuntergang geht der Restueberschuss
+                # zwangslaeufig gegen null, und damit ist "Ueberschuss kleiner
+                # als Rueckstand" praktisch immer erfuellt. Die Regel konnte
+                # "knapper Tag" nicht von "Tag zu Ende" unterscheiden und gab
+                # abends die volle Ladeleistung frei. Liegt die Prognose dann
+                # zu niedrig - was am Abend regelmaessig vorkommt - laedt die
+                # Batterie mit voller Leistung, obwohl nichts zu retten war.
+                self._knappheit_aktiv = False
+                max_charge_power = float(self.min_charge_power)
+                throttle_reason = (f'Tagesende: nur noch {rest_ueberschuss:.1f} kWh '
+                                   f'Ueberschuss erwartet - nichts mehr zu verteilen')
+
+            elif (self.ist_knapper_tag(pv_today)
+                  and self._ist_knappheit(rest_ueberschuss, deficit_kwh)):
                 # Knappheit: Der erwartete Ueberschuss reicht kaum fuer den
                 # Rueckstand. Jede gedrosselte Kilowattstunde ist endgueltig
                 # verloren - besonders an sonnigen Wintertagen, wo die
                 # Erzeugung in wenigen Mittagsstunden anfaellt.
+                #
+                # Entscheidend ist die Bindung an `ist_knapper_tag`: Der
+                # Restueberschuss schrumpft im Tagesverlauf zwangslaeufig,
+                # also war das Verhaeltnis Ueberschuss/Rueckstand ab dem
+                # spaeten Nachmittag AUCH an 38-kWh-Sonnentagen erfuellt.
+                # Die Regel loeste damit taeglich aus, obwohl sie fuer kurze
+                # Wintertage gedacht ist. An ertragreichen Tagen genuegt die
+                # anteilige Verteilung: Liegt der Speicher zurueck, waechst
+                # der erlaubte Anteil dort von selbst.
                 max_charge_power = configured_max_power
-                throttle_reason = (f'keine Drosselung: erwarteter Ueberschuss '
+                throttle_reason = (f'knapper Tag, keine Drosselung: erwarteter Ueberschuss '
                                    f'{rest_ueberschuss:.1f} kWh deckt den Rueckstand '
                                    f'{deficit_kwh:.1f} kWh nur knapp')
             else:
@@ -960,6 +1119,8 @@ class PVShapingPlanner:
                 'knapp_heute': knapp_heute,
                 'knapp_morgen': knapp_morgen,
                 'soc_obergrenze': round(obergrenze, 1),
+                'soc_deckel_roh': round(roh_max_soc, 1),
+                'knappheit_aktiv': self._knappheit_aktiv,
                 'overnight_breakdown': self.last_overnight_breakdown,
             },
         })
