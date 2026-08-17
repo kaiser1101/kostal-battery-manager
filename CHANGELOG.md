@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.16.1] - 2026-08-17
+
+### Fixed
+- **Logflut bei leerer Verbrauchsdatenbank.** Ein einziger Diagrammabruf
+  erzeugte 72 Warnungen in derselben Sekunde - 24 Stunden mal heute,
+  morgen und Profil. Waehrend eines Home-Assistant-Neustarts begrub das
+  jede andere Meldung. Der Rueckfall auf den Standardwert wird jetzt
+  hoechstens alle zehn Minuten je Stunde gemeldet, und die Meldung ist
+  auf Deutsch wie der Rest.
+
 ## [0.16.0] - 2026-08-17
 
 ### Added

@@ -31,6 +31,11 @@ class ConsumptionLearner:
         self.db_path = db_path
         self.learning_days = learning_days
         self.default_fallback = default_fallback
+        # Wann zuletzt fuer eine Stunde auf den Standardwert zurueckgefallen
+        # wurde. Ohne Begrenzung schreibt eine leere Datenbank 72 Warnungen
+        # pro Diagrammabruf - 24 Stunden mal heute, morgen und Profil - und
+        # begraebt damit jede echte Meldung.
+        self._fallback_gemeldet = {}
         self._init_database()
         logger.info(f"Consumption Learner initialized (learning period: {learning_days} days, "
                    f"fallback: {default_fallback} kWh/h)")
@@ -696,8 +701,19 @@ class ConsumptionLearner:
                 if wert is not None:
                     return wert
 
-        logger.warning(f"No data for hour {hour}, using default {self.default_fallback} kWh")
+        self._melde_fallback(hour)
         return self.default_fallback
+
+    def _melde_fallback(self, hour: int):
+        """Meldet den Rueckfall auf den Standardwert, hoechstens alle 10 Minuten je Stunde."""
+        import time as _time
+        jetzt = _time.monotonic()
+        zuletzt = self._fallback_gemeldet.get(hour)
+        if zuletzt is not None and jetzt - zuletzt < 600:
+            return
+        self._fallback_gemeldet[hour] = jetzt
+        logger.warning(f"Keine Verbrauchsdaten fuer Stunde {hour} - "
+                       f"nutze Standardwert {self.default_fallback:.2f} kWh")
 
     def get_sample_count(self, hour: int) -> int:
         """Anzahl vorhandener Messwerte fuer eine Stunde (ueber alle Tage)."""
