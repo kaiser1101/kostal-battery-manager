@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.15.3] - 2026-08-17
+
+### Added
+- **Tatsaechliche PV-Erzeugung im Diagramm**, als eigene Kurve neben der
+  Prognose. Quelle sind die DC-Strangleistungen des Wechselrichters
+  (`pv_power_now_roof1/2`), stundenweise integriert.
+  Durchgezogen = gemessen, gestrichelt = Prognose. Die Prognosekurve ist
+  jetzt durchgehend gestrichelt, auch rueckwirkend - sie war nie eine
+  Messung.
+  Damit wird sichtbar, ob Forecast.Solar am eigenen Standort systematisch
+  danebenliegt. Genau diese Luecke hatte am 17.08. die volle Ladeleistung
+  am Abend ausgeloest: Die Prognose meldete 0,2 kWh Restsonne, die Anlage
+  lieferte noch rund 4 kW.
+- Die Kopfzeile zeigt die gemessene Tageserzeugung, sobald sie vorliegt,
+  sonst weiterhin die Prognose - jeweils benannt.
+
+### Changed
+- Die Ist-Kurve endet an der aktuellen Stunde. Die laufende Stunde ist
+  noch nicht zu Ende und saehe als Einbruch aus, der keiner ist.
+- Luecken ueber 1 h in der Leistungshistorie gelten als Ausfall: Eine
+  PV-Leistung, die stundenlang unveraendert bleibt, gibt es nicht.
+
 ## [0.15.2] - 2026-08-17
 
 ### Fixed

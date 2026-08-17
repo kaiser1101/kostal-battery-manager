@@ -232,7 +232,9 @@ Historische Daten lassen sich über die Seite „Verbrauchsimport" per CSV oder 
 - **📈 Wirkungskontrolle** — Verweildauer über dem Korridor, vorher gegen nachher.
 - **📊 Verbrauchslernen** — Abdeckung und Datenbasis.
 
-Die PV-Kurve ist durchgehend Prognose: Die tatsächlich erzeugte Leistung wird nirgends gemessen, es gibt dafür keinen Sensor. Der Batteriefluss der Vergangenheit wird dagegen aus den Sprüngen des gemessenen Ladestands abgeleitet — dieselbe Größe in derselben Einheit wie die Projektion.
+Sind `pv_power_now_roof1/2` auf die **DC-Strangleistungen des Wechselrichters** gelegt, zeigt das Diagramm die tatsächliche Erzeugung als eigene Linie neben der Prognose — durchgezogen gegen gestrichelt. Damit ist auf einen Blick sichtbar, ob Forecast.Solar an deinem Standort zu hoch oder zu tief liegt. Die Ist-Kurve endet an der aktuellen Stunde: Die laufende Stunde ist noch nicht zu Ende und sähe sonst wie ein Einbruch aus.
+
+Der Batteriefluss der Vergangenheit wird aus den Sprüngen des gemessenen Ladestands abgeleitet — dieselbe Größe in derselben Einheit wie die Projektion.
 
 In der `forecast`-Strategie werden die preisbasierten Karten ausgeblendet.
 
