@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.15.2] - 2026-08-17
+
+### Fixed
+- **Die Verbrauchskurve blieb brettflach bei 0,83 kWh/h.** Nicht der
+  Rueckfallwert war die Ursache, sondern die Gewichtung: Importierte
+  Werte (168 Datensaetze = 7 Tage) und gemessene Werte (1-2 Tage) wurden
+  gemittelt, und der Import gewann schlicht durch Menge. Sichtbar als
+  flache Linie ueber den ganzen Tag - mit kleinen Dellen nur in den
+  wenigen Stunden, fuer die schon gemessen wurde.
+  Gemessene Werte verdraengen jetzt importierte, statt sich mit ihnen zu
+  mitteln.
+- **Der Wochentagsfilter blockierte die Messwerte zusaetzlich.** Wer
+  gerade erst anfaengt zu lernen, hat Daten fuer ein bis zwei Wochentage;
+  wird zuerst nach Wochentag gefiltert, bleiben fuer fast jede Stunde nur
+  importierte Werte uebrig. Die QUELLE kommt jetzt vor dem WOCHENTAG:
+  gemessen/gleicher Tag -> gemessen/irgendein Tag -> importiert/gleicher
+  Tag -> importiert/irgendein Tag -> Standardwert.
+- `get_hourly_profile()` fuellte Luecken mit dem Durchschnitt ueber die
+  vorhandenen STUNDEN - also einem flachen Tageswert, gleichermassen fuer
+  3 Uhr nachts wie fuer 19 Uhr. Dieselbe Ursache war in
+  `get_average_consumption` laengst behoben, hier nicht. Die Funktion
+  greift jetzt direkt darauf zurueck, damit beide nicht wieder
+  auseinanderlaufen koennen.
+
 ## [0.15.1] - 2026-08-17
 
 ### Changed

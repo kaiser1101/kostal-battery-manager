@@ -620,87 +620,84 @@ class ConsumptionLearner:
             logger.info(f"Cleared ALL {deleted} consumption records")
             return deleted
 
+    def _stundenmittel(self, conn, hour: int, weekday=None,
+                       nur_gemessen: bool = False) -> Optional[float]:
+        """
+        Mittelwert einer Stunde, wahlweise auf Wochentag und Quelle
+        eingeschraenkt.
+
+        ROW_NUMBER entfernt Doubletten innerhalb derselben Stunde desselben
+        Tages; bei gleichem Zeitpunkt gewinnt der gelernte vor dem
+        importierten Wert.
+        """
+        bedingungen = ['hour = ?']
+        params = [hour]
+        if weekday is not None:
+            bedingungen.append("strftime('%w', timestamp) = ?")
+            params.append(weekday)
+        if nur_gemessen:
+            bedingungen.append('is_manual = 0')
+
+        sql = f"""
+            SELECT AVG(consumption_kwh) FROM (
+                SELECT consumption_kwh,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY DATE(timestamp), hour
+                           ORDER BY is_manual ASC, created_at DESC
+                       ) AS rn
+                FROM hourly_consumption
+                WHERE {' AND '.join(bedingungen)}
+            ) WHERE rn = 1
+        """
+        row = conn.execute(sql, params).fetchone()
+        return float(row[0]) if row and row[0] else None
+
     def get_average_consumption(self, hour: int, target_date=None) -> float:
         """
-        Get average consumption for a specific hour
+        Durchschnittsverbrauch einer Stunde in kWh.
+
+        Die Quellen werden in dieser Reihenfolge probiert:
+
+          1. gemessen, gleicher Wochentag
+          2. gemessen, irgendein Tag
+          3. importiert, gleicher Wochentag
+          4. importiert, irgendein Tag
+          5. Standardwert
+
+        Entscheidend ist, dass die QUELLE vor dem WOCHENTAG kommt. Wer
+        gerade erst anfaengt zu lernen, hat Messwerte fuer ein oder zwei
+        Tage - also fuer ein oder zwei Wochentage. Filtert man zuerst nach
+        Wochentag, bleiben fuer fast jede Stunde nur importierte Werte
+        uebrig, und die Kurve bleibt brettflach beim Importwert, obwohl
+        laengst echte Messungen vorliegen.
 
         Args:
-            hour: Hour of day (0-23)
-            target_date: Optional date/datetime to get consumption for.
-                        If provided, only uses data from same weekday
-                        If None, uses all available data
-
-        Returns:
-            Average consumption in kWh for that hour
+            hour: Stunde 0-23
+            target_date: Datum, dessen Wochentag bevorzugt wird.
+                         None = ohne Wochentagsbevorzugung.
         """
-        from datetime import datetime, date as date_type
+        from datetime import datetime as _dt
 
-        # Determine weekday filter
-        weekday_filter = None
+        weekday = None
         if target_date is not None:
-            if isinstance(target_date, datetime):
+            if isinstance(target_date, _dt):
                 target_date = target_date.date()
-            weekday_filter = target_date.strftime('%w')
+            weekday = target_date.strftime('%w')
 
         with sqlite3.connect(self.db_path) as conn:
-            # Handle duplicates: only use best entry per date+hour
-            if weekday_filter is not None:
-                cursor = conn.execute("""
-                    SELECT AVG(consumption_kwh) as avg_consumption
-                    FROM (
-                        SELECT DATE(timestamp) as date, hour, consumption_kwh, is_manual, created_at,
-                               ROW_NUMBER() OVER (
-                                   PARTITION BY DATE(timestamp), hour
-                                   ORDER BY is_manual ASC, created_at DESC
-                               ) as rn
-                        FROM hourly_consumption
-                        WHERE hour = ? AND strftime('%w', timestamp) = ?
-                    )
-                    WHERE rn = 1
-                """, (hour, weekday_filter))
-            else:
-                cursor = conn.execute("""
-                    SELECT AVG(consumption_kwh) as avg_consumption
-                    FROM (
-                        SELECT DATE(timestamp) as date, hour, consumption_kwh, is_manual, created_at,
-                               ROW_NUMBER() OVER (
-                                   PARTITION BY DATE(timestamp), hour
-                                   ORDER BY is_manual ASC, created_at DESC
-                               ) as rn
-                        FROM hourly_consumption
-                        WHERE hour = ?
-                    )
-                    WHERE rn = 1
-                """, (hour,))
+            versuche = [
+                (weekday, True),    # gemessen, gleicher Wochentag
+                (None, True),       # gemessen, irgendein Tag
+                (weekday, False),   # beliebige Quelle, gleicher Wochentag
+                (None, False),      # beliebige Quelle, irgendein Tag
+            ]
+            for wd, nur_gemessen in versuche:
+                wert = self._stundenmittel(conn, hour, wd, nur_gemessen)
+                if wert is not None:
+                    return wert
 
-            result = cursor.fetchone()
-            if result and result[0]:
-                return float(result[0])
-
-            # Der Wochentagsfilter ist bei duenner Datenlage schaedlich: mit
-            # 7 Tagen Historie gibt es pro (Stunde, Wochentag) nur EINEN Wert,
-            # und fehlt der, landeten wir beim pauschalen Tagesdurchschnitt -
-            # fuer Nachtstunden voellig falsch. Deshalb zuerst ueber ALLE
-            # Wochentage mitteln, bevor der Fallback greift.
-            if weekday_filter is not None:
-                cursor = conn.execute("""
-                    SELECT AVG(consumption_kwh) FROM (
-                        SELECT consumption_kwh,
-                               ROW_NUMBER() OVER (
-                                   PARTITION BY DATE(timestamp), hour
-                                   ORDER BY is_manual ASC, created_at DESC
-                               ) as rn
-                        FROM hourly_consumption WHERE hour = ?
-                    ) WHERE rn = 1
-                """, (hour,))
-                result = cursor.fetchone()
-                if result and result[0]:
-                    logger.debug(f"Stunde {hour}: kein Wert fuer diesen Wochentag, "
-                                 f"nutze Mittel ueber alle Tage")
-                    return float(result[0])
-
-            logger.warning(f"No data for hour {hour}, using default {self.default_fallback} kWh")
-            return self.default_fallback
+        logger.warning(f"No data for hour {hour}, using default {self.default_fallback} kWh")
+        return self.default_fallback
 
     def get_sample_count(self, hour: int) -> int:
         """Anzahl vorhandener Messwerte fuer eine Stunde (ueber alle Tage)."""
@@ -717,92 +714,19 @@ class ConsumptionLearner:
 
     def get_hourly_profile(self, target_date=None) -> Dict[int, float]:
         """
-        Get complete 24-hour average consumption profile
+        Vollstaendiges 24-Stunden-Profil in kWh.
+
+        Bewusst Stunde fuer Stunde ueber get_average_consumption, statt mit
+        einer eigenen Abfrage: Sonst haben Profil und Einzelwert
+        unterschiedliche Regeln, und genau das war schon einmal die
+        Ursache eines Fehlers - der Einzelwert bekam die Rueckfallkette,
+        das Profil fuellte Luecken weiter mit einem flachen Tagesmittel.
 
         Args:
-            target_date: Optional date/datetime to get profile for.
-                        If provided, only uses data from same weekday (e.g., all Mondays)
-                        If None, uses all available data (old behavior)
-
-        Returns:
-            Dict with hour (0-23) as key and average consumption in kWh as value
+            target_date: Datum, dessen Wochentag bevorzugt wird.
         """
-        from datetime import datetime, date as date_type
-
-        profile = {}
-
-        # Determine if we should filter by weekday
-        weekday_filter = None
-        if target_date is not None:
-            if isinstance(target_date, datetime):
-                target_date = target_date.date()
-            # SQLite's strftime('%w', date) returns: 0=Sunday, 1=Monday, ..., 6=Saturday
-            # Python's strftime('%w') matches this
-            weekday_filter = target_date.strftime('%w')
-            logger.debug(f"Filtering consumption profile for weekday {weekday_filter} ({target_date.strftime('%A')})")
-
-        with sqlite3.connect(self.db_path) as conn:
-            # For each hour, calculate average consumption
-            # Handle duplicates by selecting best entry per date+hour:
-            # - Prefer learned (is_manual=0) over imported (is_manual=1)
-            # - Use latest created_at as tiebreaker
-
-            if weekday_filter is not None:
-                # Filter by weekday
-                cursor = conn.execute("""
-                    SELECT hour, AVG(consumption_kwh) as avg_consumption, COUNT(*) as sample_count
-                    FROM (
-                        SELECT DATE(timestamp) as date, hour, consumption_kwh, is_manual, created_at,
-                               ROW_NUMBER() OVER (
-                                   PARTITION BY DATE(timestamp), hour
-                                   ORDER BY is_manual ASC, created_at DESC
-                               ) as rn
-                        FROM hourly_consumption
-                        WHERE strftime('%w', timestamp) = ?
-                    )
-                    WHERE rn = 1
-                    GROUP BY hour
-                    ORDER BY hour
-                """, (weekday_filter,))
-            else:
-                # Use all data
-                cursor = conn.execute("""
-                    SELECT hour, AVG(consumption_kwh) as avg_consumption, COUNT(*) as sample_count
-                    FROM (
-                        SELECT DATE(timestamp) as date, hour, consumption_kwh, is_manual, created_at,
-                               ROW_NUMBER() OVER (
-                                   PARTITION BY DATE(timestamp), hour
-                                   ORDER BY is_manual ASC, created_at DESC
-                               ) as rn
-                        FROM hourly_consumption
-                    )
-                    WHERE rn = 1
-                    GROUP BY hour
-                    ORDER BY hour
-                """)
-
-            for row in cursor:
-                hour = row[0]
-                avg = row[1]
-                count = row[2]
-                profile[hour] = float(avg)
-                if weekday_filter is not None:
-                    logger.debug(f"Hour {hour:02d}:00 - avg: {avg:.2f} kWh (from {count} samples)")
-
-        # Fill missing hours with fallback or average of available data
-        if profile:
-            avg_consumption = sum(profile.values()) / len(profile)
-            for hour in range(24):
-                if hour not in profile:
-                    profile[hour] = avg_consumption
-                    if weekday_filter is not None:
-                        logger.debug(f"Hour {hour:02d}:00 - using fallback: {avg_consumption:.2f} kWh")
-        else:
-            # No data at all - use default fallback
-            for hour in range(24):
-                profile[hour] = self.default_fallback
-
-        return profile
+        return {hour: self.get_average_consumption(hour, target_date)
+                for hour in range(24)}
 
     def predict_consumption_until(self, target_hour: int, start_datetime=None) -> float:
         """
