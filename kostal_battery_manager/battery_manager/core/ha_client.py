@@ -219,7 +219,7 @@ class HomeAssistantClient:
             logger.error(f"Error setting datetime: {e}")
             return False
 
-    def get_history(self, entity_id, start_time, end_time=None):
+    def get_history(self, entity_id, start_time, end_time=None, no_attributes=False):
         """
         Get historical data for an entity (v0.6.0)
 
@@ -246,6 +246,13 @@ class HomeAssistantClient:
             # Build URL
             url = f"{self.api_url}/api/history/period/{start_time}"
             params = {'filter_entity_id': entity_id}
+
+            # Attribute weglassen, wo nur state und last_changed gebraucht
+            # werden. Bei Leistungssensoren mit Sekundentakt macht das den
+            # groessten Teil der Antwort aus - friendly_name, unit und
+            # device_class wiederholen sich sonst tausendfach.
+            if no_attributes:
+                params['no_attributes'] = 'true'
 
             if end_time:
                 if hasattr(end_time, 'isoformat'):

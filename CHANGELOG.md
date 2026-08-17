@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.15.4] - 2026-08-17
+
+### Fixed
+- **Das Diagramm lud spuerbar langsamer.** Die in v0.15.3 ergaenzte
+  Ist-Kurve holte bei JEDEM Aufruf die vollstaendige Tageshistorie beider
+  DC-Straenge. Leistungssensoren aktualisieren im Sekundentakt: gemessen
+  am eigenen Log lieferte ein Sensor fuer eine Stunde 327 Eintraege, also
+  rund 7.800 pro Tag - mal zwei Straenge etwa 15.700 Eintraege statt
+  zuvor 50, bei jedem Seitenaufruf und zusaetzlich alle fuenf Minuten.
+  Die Messwerte werden jetzt fuer die laufende Stunde zwischengespeichert;
+  vergangene Stunden aendern sich ohnehin nicht mehr. Statt 24 Abrufen
+  pro Stunde bleiben zwei.
+- Die Abfrage laeuft zusaetzlich mit `no_attributes`. Bei Sensoren im
+  Sekundentakt machen die wiederholten Attribute (friendly_name, unit,
+  device_class) den groessten Teil der Antwort aus.
+
 ## [0.15.3] - 2026-08-17
 
 ### Added

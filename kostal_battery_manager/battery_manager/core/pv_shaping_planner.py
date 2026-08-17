@@ -94,6 +94,9 @@ class PVShapingPlanner:
         # werden, nicht auf Basis einer alten Lage.
         self._knappheit_aktiv = False
         self._letzter_max_soc = None
+        # Zwischenspeicher der gemessenen PV-Erzeugung, gueltig fuer die
+        # laufende Stunde. Vergangene Stunden aendern sich nicht mehr.
+        self._pv_ist_cache = None
 
         self.state_path = state_path
         self._state = self._load_state()
@@ -490,6 +493,15 @@ class PVShapingPlanner:
         if not ha_client:
             return {}
 
+        # Einmal pro Stunde genuegt. Die Abfrage ist die mit Abstand
+        # teuerste im Diagramm: Ein Leistungssensor im Sekundentakt liefert
+        # fuer einen Tag mehrere tausend Eintraege, und es sind zwei
+        # Straenge. Ohne diesen Zwischenspeicher liefe das bei jedem
+        # Seitenaufruf und zusaetzlich alle fuenf Minuten.
+        cache_schluessel = (now.date(), now.hour)
+        if self._pv_ist_cache and self._pv_ist_cache[0] == cache_schluessel:
+            return self._pv_ist_cache[1]
+
         mitternacht = now.replace(hour=0, minute=0, second=0, microsecond=0)
         je_stunde: Dict[int, float] = {}
 
@@ -506,7 +518,8 @@ class PVShapingPlanner:
                                    f"Ist-Erzeugung wird uebersprungen")
                     continue
 
-                history = ha_client.get_history(sensor, mitternacht, now)
+                history = ha_client.get_history(sensor, mitternacht, now,
+                                                no_attributes=True)
                 punkte = []
                 for eintrag in history or []:
                     roh = eintrag.get('state')
@@ -530,6 +543,7 @@ class PVShapingPlanner:
             except Exception as e:
                 logger.debug(f"Ist-Erzeugung aus {sensor} nicht verfuegbar: {e}")
 
+        self._pv_ist_cache = (cache_schluessel, je_stunde)
         return je_stunde
 
     def _project_tomorrow(self, ha_client, config, current_soc, battery_capacity,
