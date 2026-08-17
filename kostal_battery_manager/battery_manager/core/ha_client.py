@@ -12,6 +12,27 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _als_zeitstempel(wert):
+    """
+    Bringt einen Zeitpunkt in die Form, die die History-API von Home
+    Assistant akzeptiert: ISO 8601 MIT Zeitzone und OHNE Mikrosekunden.
+
+    Ohne diese Normalisierung antwortet die API mit HTTP 200 und einer
+    leeren Liste - also genau so, wie wenn es wirklich keine Daten gaebe.
+    An realer Hardware beobachtet: Derselbe Sensor lieferte im Abstand von
+    elf Sekunden 50 Eintraege fuer `2026-08-17T00:00:00+02:00` und nichts
+    fuer `2026-08-10T18:52:08.203243`.
+
+    `datetime.now()` ist naiv - deshalb wird hier die lokale Zeitzone
+    ergaenzt, statt sich auf den Aufrufer zu verlassen.
+    """
+    if not hasattr(wert, 'isoformat'):
+        return wert
+    if wert.tzinfo is None:
+        wert = wert.astimezone()
+    return wert.replace(microsecond=0).isoformat()
+
+
 class HomeAssistantClient:
     """Client for Home Assistant Supervisor API"""
     
@@ -239,18 +260,14 @@ class HomeAssistantClient:
             return []
 
         try:
-            # Convert datetime objects to ISO strings if needed
-            if hasattr(start_time, 'isoformat'):
-                start_time = start_time.isoformat()
+            start_time = _als_zeitstempel(start_time)
 
             # Build URL
             url = f"{self.api_url}/api/history/period/{start_time}"
             params = {'filter_entity_id': entity_id}
 
             if end_time:
-                if hasattr(end_time, 'isoformat'):
-                    end_time = end_time.isoformat()
-                params['end_time'] = end_time
+                params['end_time'] = _als_zeitstempel(end_time)
 
             logger.info(f"Fetching history for {entity_id} from {start_time} to {end_time or 'now'}")
 
@@ -264,8 +281,8 @@ class HomeAssistantClient:
                     logger.info(f"Retrieved {len(history)} history entries for {entity_id}")
                     return history
                 else:
-                    self.last_history_error = (f'HTTP 200, aber leere Antwort - HA kennt fuer '
-                                               f'diesen Zeitraum keine aufgezeichneten Werte')
+                    self.last_history_error = (f'HTTP 200, aber leere Antwort fuer den '
+                                               f'Zeitraum ab {start_time}')
                     logger.warning(f"No history data found for {entity_id}")
                     return []
             else:

@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.15.1] - 2026-08-17
+
+### Fixed
+- **Die Wirkungskontrolle fand nie Historie.** Nicht der Recorder war die
+  Ursache, sondern das Format des Zeitstempels: `datetime.now()` liefert
+  eine Zeit OHNE Zeitzone und MIT Mikrosekunden, und darauf antwortet die
+  History-API von Home Assistant mit HTTP 200 und einer leeren Liste -
+  also genau so, wie wenn es wirklich keine Daten gaebe.
+  Im Log desselben Geraets, elf Sekunden auseinander:
+  `2026-08-17T00:00:00+02:00` -> 50 Eintraege,
+  `2026-08-10T18:52:08.203243` -> nichts.
+  Zeitstempel werden jetzt zentral in `get_history()` normalisiert, damit
+  kein Aufrufer den Fehler wiederholen kann.
+- Die Fehlermeldung behauptete daraufhin, die Entitaet sei "wahrscheinlich
+  vom Recorder ausgeschlossen". Sie nennt jetzt mehrere moegliche Ursachen
+  und den tatsaechlich gesendeten Zeitstempel, statt sich auf eine
+  festzulegen.
+
 ## [0.15.0] - 2026-08-17
 
 ### Fixed
