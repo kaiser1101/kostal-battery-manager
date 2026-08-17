@@ -1,5 +1,5 @@
 name: Kostal Battery Manager edited by Phil
-version: "0.15.4"
+version: "0.16.0"
 slug: kostal_battery_manager
 description: "description: Intelligente Batteriesteuerung für Kostal Plenticore Plus mit PV-Prognose, Verbrauchslernen, intelligenter SOC-Optimierung und bedarfsgerechter Batterieladung"
 url: "https://github.com/kaiser1101/kostal-battery-manager.git"
@@ -140,6 +140,28 @@ options:
   # average_daily_consumption: 20.0  # kWh pro Tag
   # Fallback wenn keine Daten vorhanden (Standard: 1.0 kWh/h)
   # default_hourly_consumption_fallback: 1.0  # kWh pro Stunde
+
+  # --- Netzbezug (v0.16.0) ---------------------------------------------
+  # Macht das eigentliche Ziel messbar: moeglichst wenig Strom zukaufen.
+  # Ohne diese Sensoren misst die Wirkungskontrolle nur, wie es der
+  # Batterie geht - nicht, ob die Autarkie besser geworden ist.
+  #
+  # Bevorzugt einen ENERGIEZAEHLER in kWh oder Wh (total_increasing).
+  # Ein Leistungssensor funktioniert auch, ist aber ungenauer.
+  grid_import_energy_sensor: ""   # kumuliert - Bezug aus dem Netz
+  grid_export_energy_sensor: ""   # kumuliert - Einspeisung (optional)
+  grid_power_sensor: ""           # + = Bezug, - = Einspeisung (Ersatz)
+
+  # --- Netzbezug (v0.15.0) ---------------------------------------------
+  # Macht das eigentliche Ziel messbar: moeglichst wenig Strom zukaufen.
+  # Ohne diese Sensoren misst die Wirkungskontrolle nur, wie es der
+  # Batterie geht - nicht, ob die Autarkie besser geworden ist.
+  #
+  # Bevorzugt einen ENERGIEZAEHLER in kWh (state_class total_increasing).
+  # Ein Leistungssensor funktioniert auch, ist aber ungenauer.
+  grid_import_energy_sensor: ""   # kWh, kumuliert - Bezug aus dem Netz
+  grid_export_energy_sensor: ""   # kWh, kumuliert - Einspeisung (optional)
+  grid_power_sensor: ""           # W, + = Bezug, - = Einspeisung (Ersatz)
   # OPTIONAL: input_datetime Helfer für HA-Integration
   # Diese müssen in Home Assistant erstellt werden:
   # In configuration.yaml:
@@ -244,6 +266,12 @@ schema:
   home_consumption_sensor: str?
   average_daily_consumption: float?
   default_hourly_consumption_fallback: float?
+  grid_import_energy_sensor: str?
+  grid_export_energy_sensor: str?
+  grid_power_sensor: str?
+  grid_import_energy_sensor: str?
+  grid_export_energy_sensor: str?
+  grid_power_sensor: str?
 
   input_datetime_planned_charge_end: str?
   input_datetime_planned_charge_start: str?

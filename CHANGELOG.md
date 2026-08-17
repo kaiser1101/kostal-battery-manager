@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.16.0] - 2026-08-17
+
+### Added
+- **Netzbezug in der Wirkungskontrolle.** Bisher wurde nur gemessen, wie
+  es der Batterie geht - das eigentliche Ziel, moeglichst wenig Strom
+  zuzukaufen, war nicht messbar. Neue Optionen
+  `grid_import_energy_sensor`, `grid_export_energy_sensor`,
+  `grid_power_sensor`. Ausgewiesen wird kWh pro Tag, getrennt nach Nacht
+  (20-06 Uhr) und Tag, mit Vorher/Nachher am Scharfschalten.
+  Die Einheit wird aus der Entitaet gelesen (Wh/kWh/MWh bzw. W/kW), nicht
+  angenommen - der Unterschied ist Faktor 1000 und faellt in Tageswerten
+  nicht sicher auf.
+- **Gelernte Standortkorrektur der PV-Prognose.** Nach Sonnenuntergang
+  werden Tagesprognose und gemessene Erzeugung verglichen; aus mindestens
+  fuenf Tagen entsteht ein Korrekturfaktor (Median, begrenzt auf
+  0,6 bis 1,6), mit dem die Prognose skaliert wird.
+  Anlass war der 17.08.: Die Prognose meldete abends 0,2 kWh Restsonne,
+  die Anlage lieferte noch rund 4 kW - die Steuerung glaubte der Prognose
+  und gab die volle Ladeleistung frei.
+- **Batteriealterung.** Die nutzbare Kapazitaet aus Register 1068 wird
+  monatlich mitgeschrieben. Ueber Jahre ergibt das eine echte
+  Degradationskurve - die einzige Zahl, die am Ende beantwortet, ob sich
+  die Schonung gelohnt hat.
+- Neue Karte "Langzeit" im Dashboard und Endpunkt `/api/battery_health`.
+
+### Changed
+- `get_hourly_pv_forecast()` liefert die Prognose jetzt korrigiert; mit
+  `roh=True` unveraendert. Gelernt wird ausschliesslich gegen den
+  Rohwert, sonst naehme die Korrektur sich selbst als Messgrundlage.
+- Median statt Mittelwert, Mindestdatenlage und Deckelung: Lieber die
+  ungeschoente Prognose als eine Korrektur aus zwei Zufallstagen.
+
 ## [0.15.4] - 2026-08-17
 
 ### Fixed

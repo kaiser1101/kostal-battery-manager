@@ -177,6 +177,22 @@
         </div>
     </div>
 
+    <!-- Langzeitkennzahlen (v0.16.0) - Groessen, die erst ueber Monate
+         etwas aussagen, deshalb getrennt vom Tagesstatus -->
+    <div class="card forecast-card" data-forecast-only="1" style="display:none; grid-column: 1 / -1 !important;">
+        <h2>🔬 Langzeit</h2>
+        <div style="padding: 0.5rem 0;">
+            <div style="font-size: 0.85rem; opacity: 0.7; margin-bottom: 1rem;">
+                Wie gut trifft die PV-Prognose an deinem Standort, und wie
+                entwickelt sich die nutzbare Kapazität der Batterie?
+            </div>
+            <button onclick="loadBatteryHealth()" class="btn btn-secondary">Auswerten</button>
+            <pre id="health-result" style="display:none; margin-top: 1rem; padding: 0.75rem;
+                 background: rgba(128,128,128,0.12); border-radius: 6px; font-size: 0.8rem;
+                 overflow-x: auto; white-space: pre;"></pre>
+        </div>
+    </div>
+
     <!-- PV-Shaping Plan (v0.10.0) -->
     <div class="card forecast-card" id="shaping-card" style="display: none; grid-column: 1 / -1 !important;">
         <h2>🛡️ Batterieschonung <span id="shaping-dryrun-badge" class="badge" style="display:none; background:#b45309;">DRY-RUN</span></h2>
@@ -452,6 +468,89 @@ function fmtBlock(titel, d, korridor) {
              ? `   verworfen (Ausfall)     ${d.verworfene_stunden} h\n` : '');
 }
 
+// v0.15.0 - Netzbezug. Die SOC-Auswertung sagt, wie es der Batterie geht;
+// erst diese Zahlen sagen, ob das eigentliche Ziel erreicht wird.
+function fmtNetzBlock(titel, n) {
+    if (!n) return `${titel}\n   (keine Daten)\n`;
+    let t = `${titel}  (${n.tage} Tage, ${n.von} bis ${n.bis})\n`;
+    t += `   Netzbezug             ${n.bezug_pro_tag_kwh.toFixed(2)} kWh/Tag\n`;
+    t += `   davon nachts (20-06)  ${n.bezug_nacht_pro_tag_kwh.toFixed(2)} kWh/Tag`
+       + `  = ${n.nachtanteil_prozent} %\n`;
+    t += `   tagsueber             ${n.bezug_tag_pro_tag_kwh.toFixed(2)} kWh/Tag\n`;
+    t += `   bester / schlechtester Tag   ${n.bester_tag_kwh} / ${n.schlechtester_tag_kwh} kWh\n`;
+    return t;
+}
+
+function fmtNetz(netz) {
+    if (!netz) return '';
+    let t = '\n\n' + '='.repeat(58) + '\nNETZBEZUG\n' + '='.repeat(58) + '\n';
+    if (!netz.konfiguriert || !netz.erfolg) {
+        return t + (netz.hinweis || 'Keine Daten.') + '\n';
+    }
+    if (netz.vorher || netz.nachher) {
+        t += fmtNetzBlock('VORHER  (ohne Strategie)', netz.vorher) + '\n';
+        t += fmtNetzBlock('NACHHER (mit Strategie)', netz.nachher) + '\n';
+        if (netz.vergleich) {
+            t += (netz.vergleich.moeglich ? netz.vergleich.fazit : netz.vergleich.hinweis) + '\n';
+        }
+    } else {
+        t += fmtNetzBlock('AUSGANGSBASIS', netz.gesamt);
+    }
+    if (netz.einspeisung) {
+        t += `\n   Einspeisung           ${netz.einspeisung.pro_tag_kwh.toFixed(2)} kWh/Tag`
+           + `  (ungenutzter Ueberschuss)\n`;
+    }
+    t += `\n   Quelle: ${netz.sensor} (${netz.einheit})\n`;
+    return t;
+}
+
+// v0.16.0 - Langzeitkennzahlen: Prognosegenauigkeit und Alterung
+function loadBatteryHealth() {
+    const out = document.getElementById('health-result');
+    out.style.display = '';
+    out.textContent = 'Wird ausgewertet...';
+
+    fetch(apiUrl('api/battery_health'))
+        .then(r => r.json())
+        .then(d => {
+            if (!d.success) { out.textContent = d.reason || 'Fehlgeschlagen'; return; }
+            let t = 'PV-PROGNOSE AN DEINEM STANDORT\n' + '='.repeat(52) + '\n';
+            const p = d.prognose;
+            if (!p.aktiv) {
+                t += `   Noch ${p.mindesttage - p.tage} Tage bis zur ersten Korrektur\n`
+                   + `   (${p.tage} von ${p.mindesttage} ausgewerteten Tagen)\n`;
+            } else {
+                const richtung = p.faktor > 1 ? 'zu niedrig' : (p.faktor < 1 ? 'zu hoch' : 'genau');
+                t += `   Korrekturfaktor      ${p.faktor}   (Prognose liegt ${richtung})\n`
+                   + `   Datenbasis           ${p.tage} Tage\n`;
+            }
+            (p.verlauf || []).slice(-7).forEach(e => {
+                t += `     ${e.datum}   erwartet ${String(e.prognose).padStart(6)} kWh`
+                   + `   gemessen ${String(e.ist).padStart(6)} kWh`
+                   + `   = ${(e.ist / e.prognose).toFixed(2)}\n`;
+            });
+
+            t += '\n\nNUTZBARE BATTERIEKAPAZITÄT\n' + '='.repeat(52) + '\n';
+            const a = d.alterung;
+            if (!a.monate) {
+                t += '   Noch kein Messwert. Wird monatlich aus Register 1068 gelesen.\n';
+            } else {
+                t += `   ${a.erster_monat}   ${a.erste_kapazitaet_kwh} kWh   (Start)\n`;
+                if (a.monate > 1) {
+                    t += `   ${a.letzter_monat}   ${a.aktuelle_kapazitaet_kwh} kWh`
+                       + `   (${a.veraenderung_prozent > 0 ? '+' : ''}${a.veraenderung_prozent} %)\n`;
+                }
+                if (!a.belastbar) {
+                    t += `\n   Erst ${a.monate} von 6 Monaten. Die BMS-Schätzung schwankt mit\n`
+                       + `   Temperatur und Ladezustand - kurzfristige Änderungen sind Rauschen,\n`
+                       + `   keine Alterung.\n`;
+                }
+            }
+            out.textContent = t;
+        })
+        .catch(e => { out.textContent = 'Fehler: ' + e; });
+}
+
 function loadEffectiveness(days) {
     const out = document.getElementById('effectiveness-result');
     out.style.display = '';
@@ -478,6 +577,7 @@ function loadEffectiveness(days) {
                 t += fmtBlock('AUSGANGSBASIS', d.gesamt, d.korridor);
                 if (d.hinweis) t += '\n' + d.hinweis;
             }
+            t += fmtNetz(d.netz);
             out.textContent = t;
         })
         .catch(e => { out.textContent = 'Fehler: ' + e; });

@@ -176,6 +176,41 @@ Die Sperre war ohnehin wirkungslos: Da nie Leistungs-Sollwerte geschrieben werde
 
 Das Add-on schreibt deshalb **nirgends 0 W** als Grenzwert.
 
+## Netzbezug messen
+
+Ohne diese Sensoren misst die Wirkungskontrolle nur, wie es der **Batterie** geht — Verweildauer bei hohem Ladestand, Vollzyklen. Das eigentliche Ziel ist aber Autarkie. Erst mit dem Netzbezug wird die Abwägung nachprüfbar: Ein niedrigerer SOC-Deckel schont die Zellen und kostet Autarkie, und ohne Zahlen bleibt offen, wie teuer die Schonung war.
+
+```yaml
+grid_import_energy_sensor: "sensor.ksem_active_energy"    # kWh oder Wh, kumuliert
+grid_export_energy_sensor: "sensor.ksem_active_energy_2"  # optional (Einspeisung)
+grid_power_sensor: ""                                            # Ersatz, W
+```
+
+Bevorzugt wird ein **Energiezähler** (`state_class: total_increasing`): Die Tagessumme folgt direkt aus zwei Zählerständen, unabhängig davon, wie oft Home Assistant aufgezeichnet hat. Ein Leistungssensor funktioniert auch, ist aber ungenauer — der Recorder schreibt nur bei Zustandsänderung, und eine kurze Lastspitze zwischen zwei Einträgen bleibt unsichtbar.
+
+Die **Einheit wird aus der Entität gelesen**, nicht angenommen. Wh, kWh und MWh werden erkannt; bei einer unbekannten Einheit bricht die Auswertung ab und nennt sie. Ein um Faktor 1000 falscher Netzbezug sieht sonst plausibel genug aus, um lange unbemerkt zu bleiben.
+
+### Woher die Sensoren kommen
+
+Der KOSTAL Smart Energy Meter liefert sie über Modbus. Eine passende HA-Integration ist [MeisterTR/ha-kostal-smartmeter](https://github.com/MeisterTR/ha-kostal-smartmeter) (über HACS installierbar). Relevant sind zwei Register:
+
+| Register | Name | Bedeutung |
+|---|---|---|
+| 512 | Active energy+ | **Netzbezug**, kumuliert |
+| 516 | Active energy− | Einspeisung, kumuliert |
+
+Das sind die Hardware-Zähler des Messgeräts, live ausgelesen. Sie hängen **nicht** an der internen Protokollierung des KSEM und damit auch nicht an dessen Systemzeit — ein KSEM, der selbst nichts aufzeichnet, liefert diese Werte trotzdem.
+
+> **Gesamtzähler nehmen, nicht die pro Phase.** Bei saldierender Messung heben sich Bezug auf einer Phase und Einspeisung auf einer anderen im Gesamtzähler auf — nur dieser Wert entspricht der Abrechnung. Die Summe der drei Phasenzähler ist deutlich höher und wäre irreführend.
+
+> **Recorder-Last:** Diese Zähler aktualisieren im Sekundentakt. Schließe die Phasen-Einzelwerte in `configuration.yaml` aus, sonst wächst die Datenbank spürbar.
+
+### Nacht und Tag
+
+Der Netzbezug wird getrennt ausgewiesen für **20:00–06:00** und den Rest des Tages. Nur der Nachtanteil sagt etwas über die Strategie aus: Tagsüber entsteht Bezug auch bei voller Batterie, wenn die Last größer ist als die Erzeugung. Nachts dagegen hätte die Batterie liefern sollen — steigt der Nachtbezug, ist ein zu niedriger SOC-Deckel die naheliegende Ursache.
+
+Bewusst **ohne Geldbetrag**: Der Arbeitspreis steht nicht in der Konfiguration, und eine erfundene Zahl wäre schlechter als keine.
+
 ## Kalibrierladung
 
 ### `calibration_interval_days` (Standard: 28, `0` = aus)

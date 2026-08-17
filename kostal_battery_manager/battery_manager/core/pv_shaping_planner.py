@@ -159,8 +159,26 @@ class PVShapingPlanner:
     # ------------------------------------------------------------------
     # PV-Prognose
     # ------------------------------------------------------------------
-    def get_hourly_pv_forecast(self, ha_client, config, for_date=None) -> Dict[int, float]:
-        """Liefert {Stunde: kWh} fuer heute (for_date=None) oder ein Datum."""
+    def get_hourly_pv_forecast(self, ha_client, config, for_date=None,
+                               roh: bool = False) -> Dict[int, float]:
+        """
+        Liefert {Stunde: kWh} fuer heute (for_date=None) oder ein Datum.
+
+        Standardmaessig mit gelernter Standortkorrektur (siehe
+        `pv_bias_faktor`). Mit `roh=True` kommt die unveraenderte Prognose -
+        die wird zum Lernen gebraucht, sonst wuerde die Korrektur sich
+        selbst als Messgrundlage nehmen.
+        """
+        werte = self._prognose_roh(ha_client, config, for_date)
+        if roh or not werte:
+            return werte
+        faktor = self.pv_bias_faktor()
+        if faktor == 1.0:
+            return werte
+        return {h: v * faktor for h, v in werte.items()}
+
+    def _prognose_roh(self, ha_client, config, for_date=None) -> Dict[int, float]:
+        """Unveraenderte Prognose, ohne gelernte Korrektur."""
         target_date = for_date or datetime.now().astimezone().date()
 
         if self.forecast_solar_api and config.get('enable_forecast_solar_api', False):
@@ -194,6 +212,168 @@ class PVShapingPlanner:
                 except (ValueError, TypeError):
                     continue
         return hourly_forecast
+
+    # ------------------------------------------------------------------
+    # Gelernte Standortkorrektur der PV-Prognose
+    # ------------------------------------------------------------------
+    # Forecast.Solar rechnet mit Geometrie und Wetter, kennt aber weder
+    # Verschattung noch Verschmutzung noch die tatsaechliche Kennlinie der
+    # Module. Der Fehler ist deshalb meist SYSTEMATISCH - am selben
+    # Standort in dieselbe Richtung. Genau das laesst sich lernen.
+    #
+    # Der Anlass war konkret: Die Prognose meldete abends 0,2 kWh
+    # Restsonne, die Anlage lieferte noch rund 4 kW. Die Steuerung glaubte
+    # der Prognose und gab die volle Ladeleistung frei.
+    BIAS_MIN_TAGE = 5        # darunter ist der Median nicht aussagekraeftig
+    BIAS_FENSTER_TAGE = 21   # aeltere Tage sagen wenig ueber heute
+    BIAS_UNTERGRENZE = 0.6   # Schutz vor Ausreissern in beide Richtungen
+    BIAS_OBERGRENZE = 1.6
+
+    def erfasse_prognosegenauigkeit(self, ha_client, config,
+                                    now: Optional[datetime] = None):
+        """
+        Vergleicht die Tagesprognose mit der gemessenen Erzeugung und legt
+        das Ergebnis im Zustand ab. Aufzurufen, wenn der Tag vorbei ist.
+
+        Bewusst erst nach Sonnenuntergang: Vorher waere die gemessene
+        Erzeugung nur ein Teil des Tages und das Verhaeltnis wertlos.
+        """
+        now = now or datetime.now().astimezone()
+        heute = now.date().isoformat()
+
+        verlauf = self._state.setdefault('pv_genauigkeit', {})
+        if heute in verlauf:
+            return
+
+        prognose = self._prognose_roh(ha_client, config)
+        if not prognose:
+            return
+        sonnenuntergang = self._sunset_hour(prognose)
+        if sonnenuntergang is None or now.hour <= sonnenuntergang:
+            return
+
+        gemessen = self._gemessene_pv_heute(ha_client, config, now)
+        if not gemessen:
+            return
+
+        summe_prognose = sum(prognose.values())
+        summe_ist = sum(gemessen.values())
+        # Sehr schwache Tage taugen nicht zum Lernen: Bei 1 kWh Prognose
+        # macht ein halbes Kilowatt Abweichung schon Faktor 1,5.
+        if summe_prognose < 3.0 or summe_ist <= 0:
+            return
+
+        verlauf[heute] = {'prognose': round(summe_prognose, 2),
+                          'ist': round(summe_ist, 2)}
+        for datum in sorted(verlauf)[:-self.BIAS_FENSTER_TAGE]:
+            del verlauf[datum]
+        self._save_state()
+        logger.info(f"Prognosegenauigkeit {heute}: erwartet {summe_prognose:.1f} kWh, "
+                    f"gemessen {summe_ist:.1f} kWh "
+                    f"(Faktor {summe_ist / summe_prognose:.2f})")
+
+    def pv_bias_faktor(self) -> float:
+        """
+        Gelernter Korrekturfaktor fuer die PV-Prognose.
+
+        Median statt Mittelwert: Ein einzelner Tag mit Schneeauflage oder
+        Abregelung wuerde den Mittelwert verziehen, den Median nicht.
+
+        Gibt 1.0 zurueck, solange zu wenige Tage vorliegen - lieber die
+        ungeschoente Prognose als eine Korrektur aus zwei Zufallstagen.
+        """
+        verlauf = (self._state.get('pv_genauigkeit') or {})
+        quoten = sorted(e['ist'] / e['prognose']
+                        for e in verlauf.values()
+                        if e.get('prognose'))
+        if len(quoten) < self.BIAS_MIN_TAGE:
+            return 1.0
+        mitte = len(quoten) // 2
+        median = (quoten[mitte] if len(quoten) % 2
+                  else (quoten[mitte - 1] + quoten[mitte]) / 2)
+        return round(min(self.BIAS_OBERGRENZE,
+                         max(self.BIAS_UNTERGRENZE, median)), 3)
+
+    def bias_diagnose(self) -> Dict:
+        """Kennzahlen der Prognosekorrektur fuer Dashboard und API."""
+        verlauf = (self._state.get('pv_genauigkeit') or {})
+        return {
+            'faktor': self.pv_bias_faktor(),
+            'tage': len(verlauf),
+            'mindesttage': self.BIAS_MIN_TAGE,
+            'aktiv': len(verlauf) >= self.BIAS_MIN_TAGE,
+            'verlauf': [{'datum': d, **verlauf[d]} for d in sorted(verlauf)],
+        }
+
+    # ------------------------------------------------------------------
+    # Alterung der Batterie
+    # ------------------------------------------------------------------
+    def erfasse_kapazitaet(self, modbus_client, now: Optional[datetime] = None):
+        """
+        Schreibt die nutzbare Kapazitaet (Register 1068) einmal pro Monat mit.
+
+        Das ist die Zahl, die am Ende beantwortet, ob sich die Schonung
+        gelohnt hat. Sie faellt beim Start ohnehin an, wird aber nirgends
+        aufbewahrt - und Degradation sieht man erst ueber Jahre.
+
+        Monatlich statt taeglich: Die BMS-Angabe schwankt mit Temperatur
+        und Ladezustand um einige Prozent. Bei taeglicher Aufzeichnung
+        ersaeuft das Nutzsignal - eine gute LFP-Zelle verliert im Jahr
+        wenige Prozent.
+        """
+        if not modbus_client:
+            return
+        now = now or datetime.now().astimezone()
+        monat = now.strftime('%Y-%m')
+
+        verlauf = self._state.setdefault('kapazitaet', {})
+        if monat in verlauf:
+            return
+        try:
+            wh = modbus_client.read_work_capacity()
+        except Exception as e:
+            logger.debug(f"Kapazitaet nicht lesbar: {e}")
+            return
+        if not wh or wh <= 0:
+            return
+
+        verlauf[monat] = round(float(wh) / 1000.0, 2)
+        self._save_state()
+
+        werte = [verlauf[m] for m in sorted(verlauf)]
+        if len(werte) >= 2 and werte[0] > 0:
+            veraenderung = (werte[-1] - werte[0]) / werte[0] * 100
+            logger.info(f"Batteriekapazitaet {monat}: {werte[-1]:.2f} kWh "
+                        f"({veraenderung:+.1f}% gegenueber {sorted(verlauf)[0]})")
+        else:
+            logger.info(f"Batteriekapazitaet {monat}: {werte[-1]:.2f} kWh (erster Wert)")
+
+    def alterung_diagnose(self) -> Dict:
+        """
+        Kennzahlen zur Alterung.
+
+        Die Aussagekraft steigt mit der Zeit - unter einem halben Jahr
+        liegt die Veraenderung im Rauschen der BMS-Schaetzung. Deshalb
+        wird `belastbar` mitgeliefert, statt eine Zahl zu zeigen, die
+        Genauigkeit vortaeuscht.
+        """
+        verlauf = (self._state.get('kapazitaet') or {})
+        monate = sorted(verlauf)
+        if not monate:
+            return {'monate': 0, 'belastbar': False}
+
+        erst, letzt = verlauf[monate[0]], verlauf[monate[-1]]
+        return {
+            'monate': len(monate),
+            'erster_monat': monate[0],
+            'erste_kapazitaet_kwh': erst,
+            'letzter_monat': monate[-1],
+            'aktuelle_kapazitaet_kwh': letzt,
+            'veraenderung_prozent': (round((letzt - erst) / erst * 100, 1)
+                                     if erst > 0 else None),
+            'belastbar': len(monate) >= 6,
+            'verlauf': [{'monat': m, 'kwh': verlauf[m]} for m in monate],
+        }
 
     def _sunset_hour(self, pv_forecast: Dict[int, float]) -> Optional[int]:
         """Letzte Stunde, in der nennenswert PV erwartet wird."""
@@ -1135,6 +1315,7 @@ class PVShapingPlanner:
                 'soc_obergrenze': round(obergrenze, 1),
                 'soc_deckel_roh': round(roh_max_soc, 1),
                 'knappheit_aktiv': self._knappheit_aktiv,
+                'pv_bias': self.bias_diagnose(),
                 'overnight_breakdown': self.last_overnight_breakdown,
             },
         })

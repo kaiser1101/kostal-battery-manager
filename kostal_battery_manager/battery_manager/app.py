@@ -235,6 +235,7 @@ try:
         from .core.tibber_optimizer import TibberOptimizer
         from .core.pv_shaping_planner import PVShapingPlanner  # v0.10.0
         from .core import effectiveness  # v0.12.0
+        from .core import grid_analysis  # v0.15.0
         from .core.consumption_learner import ConsumptionLearner
         from .core.forecast_solar_api import ForecastSolarAPI  # v0.9.2
     except ImportError:
@@ -247,6 +248,7 @@ try:
         from core.tibber_optimizer import TibberOptimizer
         from core.pv_shaping_planner import PVShapingPlanner  # v0.10.0
         from core import effectiveness  # v0.12.0
+        from core import grid_analysis  # v0.15.0
         from core.consumption_learner import ConsumptionLearner
         from core.forecast_solar_api import ForecastSolarAPI  # v0.9.2
     
@@ -834,6 +836,16 @@ def api_effectiveness():
     if not ha_client:
         return jsonify({'success': False, 'error': 'HA-Client nicht verfuegbar'}), 500
 
+    # Scheitert beim Start ein Import, sind die Auswertungsmodule gar nicht
+    # gebunden. Ohne diese Pruefung antwortet der Endpunkt mit einem
+    # NameError und HTTP 500 - der Fehler steht dann im Log statt dort, wo
+    # er gesucht wird.
+    if 'effectiveness' not in globals():
+        return jsonify({'success': False,
+                        'error': ('Auswertungsmodule nicht geladen - beim Start ist ein '
+                                  'Import fehlgeschlagen. Die genaue Ursache steht im '
+                                  'Add-on-Log ("Could not import components").')}), 200
+
     try:
         days = min(int(request.args.get('days', 30)), 90)
     except ValueError:
@@ -921,7 +933,89 @@ def api_effectiveness():
                             'Die Auswertung zeigt den aktuellen Zustand als Ausgangsbasis - '
                             'genau die Werte, gegen die spaeter verglichen wird.')
 
+    # --- Netzbezug (v0.15.0) ------------------------------------------
+    # Die zweite Haelfte der Wirkungskontrolle: Die SOC-Auswertung sagt,
+    # wie es der Batterie geht - erst der Netzbezug sagt, ob das Ziel
+    # erreicht wird.
+    result['netz'] = _netz_auswertung(genutzte_tage, live_since)
+
     return jsonify(result)
+
+
+def _netz_auswertung(tage, live_since):
+    """
+    Netzbezug ueber den Auswertungszeitraum, wenn ein Sensor konfiguriert
+    ist. Der Energiezaehler hat Vorrang vor dem Leistungssensor: Eine
+    Tagessumme aus zwei Zaehlerstaenden ist unabhaengig davon, wie oft
+    aufgezeichnet wurde.
+    """
+    energie = (config.get('grid_import_energy_sensor') or '').strip()
+    leistung = (config.get('grid_power_sensor') or '').strip()
+    sensor, quelle = (energie, 'energie') if energie else (leistung, 'leistung')
+
+    if not sensor:
+        return {'konfiguriert': False,
+                'hinweis': ('Kein Netz-Sensor konfiguriert. Ohne ihn misst die '
+                            'Wirkungskontrolle nur die Batterie, nicht die Autarkie. '
+                            'Trage grid_import_energy_sensor (kWh, bevorzugt) oder '
+                            'grid_power_sensor (W) in der Add-on-Konfiguration ein.')}
+
+    # Einheit aus der Entitaet lesen statt annehmen. Der KOSTAL Smart
+    # Energy Meter liefert Wh, viele andere Zaehler kWh - der Unterschied
+    # ist Faktor 1000 und faellt in den Tageswerten nicht sicher auf.
+    attrs = ha_client.get_attributes(sensor) or {}
+    einheit = attrs.get('unit_of_measurement')
+    faktor = grid_analysis.einheit_faktor(einheit, quelle)
+    if faktor is None:
+        return {'konfiguriert': True, 'sensor': sensor, 'erfolg': False,
+                'hinweis': (f'Unbekannte Einheit "{einheit}" bei {sensor}. '
+                            f'Erwartet wird Wh/kWh/MWh bei einem Energiezaehler '
+                            f'bzw. W/kW bei einem Leistungssensor.')}
+
+    history = ha_client.get_history(sensor, datetime.now() - timedelta(days=tage))
+    if not history:
+        fehler = getattr(ha_client, 'last_history_error', None)
+        return {'konfiguriert': True, 'sensor': sensor, 'erfolg': False,
+                'hinweis': (f'Keine Historie fuer {sensor}.'
+                            + (f' Meldung von Home Assistant: {fehler}' if fehler else ''))}
+
+    ergebnis = {'konfiguriert': True, 'sensor': sensor, 'quelle': quelle,
+                'einheit': einheit, 'erfolg': True,
+                'gesamt': grid_analysis.auswerten(history, quelle, faktor)}
+
+    if live_since:
+        vor_raw, nach_raw = grid_analysis.teilen(history, live_since)
+        vorher = grid_analysis.auswerten(vor_raw, quelle, faktor)
+        nachher = grid_analysis.auswerten(nach_raw, quelle, faktor)
+        ergebnis.update({'vorher': vorher, 'nachher': nachher,
+                         'vergleich': grid_analysis.vergleichen(vorher, nachher)})
+
+    if not ergebnis['gesamt']:
+        ergebnis['erfolg'] = False
+        ergebnis['hinweis'] = ('Zu wenige verwertbare Tage. Der erste und letzte Tag '
+                               'werden verworfen, weil sie angeschnitten sind - es '
+                               'braucht also mindestens drei Tage Historie.')
+
+    # Einspeisung, falls konfiguriert. Nur zur Einordnung: Sie zeigt, wie
+    # viel Ueberschuss ungenutzt weggeht - der Teil, den ein groesserer
+    # Deckel oder eine Waermelast noch aufnehmen koennte.
+    export_sensor = (config.get('grid_export_energy_sensor') or '').strip()
+    if export_sensor:
+        e_attrs = ha_client.get_attributes(export_sensor) or {}
+        e_faktor = grid_analysis.einheit_faktor(e_attrs.get('unit_of_measurement'), 'energie')
+        if e_faktor is not None:
+            e_hist = ha_client.get_history(export_sensor,
+                                           datetime.now() - timedelta(days=tage))
+            if e_hist:
+                e_erg = grid_analysis.auswerten(e_hist, 'energie', e_faktor)
+                if e_erg:
+                    ergebnis['einspeisung'] = {
+                        'sensor': export_sensor,
+                        'pro_tag_kwh': e_erg['bezug_pro_tag_kwh'],
+                        'gesamt_kwh': e_erg['bezug_gesamt_kwh'],
+                        'tage': e_erg['tage'],
+                    }
+    return ergebnis
 
 
 @app.route('/api/hold_test', methods=['POST'])
@@ -1326,6 +1420,25 @@ def api_battery_schedule():
             'charging_windows': [],
             'last_planned': None
         }), 500
+
+@app.route('/api/battery_health')
+def api_battery_health():
+    """
+    Langzeitkennzahlen (v0.16.0): Prognosegenauigkeit und Batteriealterung.
+
+    Beides sind Groessen, die erst ueber Monate etwas aussagen - deshalb
+    getrennt von der taeglichen Statusanzeige.
+    """
+    if not pv_shaping_planner:
+        return jsonify({'success': False, 'reason': 'Planer nicht verfuegbar'}), 200
+    try:
+        return jsonify({'success': True,
+                        'prognose': pv_shaping_planner.bias_diagnose(),
+                        'alterung': pv_shaping_planner.alterung_diagnose()})
+    except Exception as e:
+        logger.error(f"Langzeitkennzahlen fehlgeschlagen: {e}", exc_info=True)
+        return jsonify({'success': False, 'reason': str(e)}), 200
+
 
 @app.route('/api/overview_chart')
 def api_overview_chart():
@@ -2386,6 +2499,21 @@ def controller_loop():
                             raise _SkipCycle()
                         app_state['battery']['soc'] = current_soc
                         battery_capacity = config.get('battery_capacity', 10.6)
+
+                        # Nach Sonnenuntergang einmal taeglich Prognose und
+                        # gemessene Erzeugung gegenueberstellen. Der Aufruf
+                        # kehrt sofort zurueck, solange der Tag laeuft oder
+                        # der Vergleich schon vorliegt.
+                        try:
+                            pv_shaping_planner.erfasse_prognosegenauigkeit(
+                                ha_client, config)
+                        except Exception as e:
+                            logger.debug(f"Prognosegenauigkeit nicht erfassbar: {e}")
+
+                        try:
+                            pv_shaping_planner.erfasse_kapazitaet(modbus_client)
+                        except Exception as e:
+                            logger.debug(f"Kapazitaet nicht erfassbar: {e}")
 
                         plan = pv_shaping_planner.plan(
                             ha_client=ha_client,

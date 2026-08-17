@@ -266,11 +266,31 @@ VORHER  (ohne Strategie)   (1 Tag, 111 Messpunkte)
    Vollzyklen              0.53  (0.54 pro Tag)
 ```
 
+Seit v0.15.0 steht daneben der **Netzbezug** — die zweite Hälfte der Antwort. Die SOC-Auswertung sagt, wie es der Batterie geht; erst der Netzbezug sagt, ob das eigentliche Ziel erreicht wird. Ausgewiesen wird er pro Tag, getrennt nach Nacht (20–06 Uhr, das Fenster das die Batterie überbrücken soll) und Tag. Voraussetzung ist ein Zählerstands-Sensor, siehe [CONFIGURATION.md](CONFIGURATION.md).
+
 Gemessen wird die **Verweildauer bei hohem Ladestand**. Die Trennlinie ist der Zeitpunkt des ersten echten Schreibvorgangs, der automatisch vermerkt wird.
 
 Zwei Details, ohne die die Zahlen falsch wären: Die Zeitanteile werden über die **Dauer zwischen den Messpunkten** gewichtet, nicht über deren Anzahl — HA schreibt nur bei Änderung. Und ein stundenlang konstanter SOC erzeugt gar keine Einträge; solche Lücken werden bis zu 12 Stunden als gültige Messung behandelt, weil sie fast immer konstanten Ladestand bedeuten und nicht fehlende Daten.
 
 Umfasst ein Zeitraum weniger als 7 Tage, weist die Auswertung selbst darauf hin, dass das Ergebnis **nicht belastbar** ist.
+
+## 🔬 Langzeitkennzahlen
+
+Zwei Größen, die erst über Monate etwas aussagen — deshalb in einer eigenen Karte, getrennt vom Tagesstatus.
+
+### Prognosegenauigkeit
+
+Nach Sonnenuntergang wird die Tagesprognose mit der gemessenen Erzeugung verglichen und das Verhältnis mitgeschrieben. Aus mindestens fünf Tagen entsteht ein **Korrekturfaktor**, mit dem die Prognose anschließend skaliert wird.
+
+Forecast.Solar rechnet mit Geometrie und Wetter, kennt aber weder Verschattung noch Verschmutzung noch die tatsächliche Kennlinie deiner Module. Der Fehler ist deshalb meist systematisch — am selben Standort in dieselbe Richtung. Genau das ist lernbar, und es ersetzt einen Teil dessen, was `pv_forecast_safety_margin` bisher pauschal auffangen musste.
+
+Verwendet wird der **Median**, nicht der Mittelwert: Ein einzelner Tag mit Schnee auf den Modulen oder mit Abregelung würde den Mittelwert verziehen. Der Faktor ist auf 0,6 bis 1,6 begrenzt, Tage unter 3 kWh Prognose fließen nicht ein — dort macht ein halbes Kilowatt Abweichung schon Faktor 1,5.
+
+### Batteriealterung
+
+Einmal im Monat wird die nutzbare Kapazität aus Register 1068 mitgeschrieben. Das ist die Zahl, die am Ende beantwortet, ob sich die Schonung gelohnt hat.
+
+Monatlich statt täglich, weil die BMS-Schätzung mit Temperatur und Ladezustand um einige Prozent schwankt — bei täglicher Aufzeichnung ersäuft das Nutzsignal. Unter sechs Monaten weist die Auswertung selbst darauf hin, dass die Änderung noch im Rauschen liegt.
 
 ## 🛡️ Sicherheitshinweise
 
