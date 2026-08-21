@@ -1421,6 +1421,24 @@ def api_battery_schedule():
             'last_planned': None
         }), 500
 
+@app.route('/api/decision_log')
+def api_decision_log():
+    """
+    Entscheidungsprotokoll (v0.17.0): was die Steuerung an welchem Tag
+    entschieden hat, mit den Eingangsgroessen.
+
+    Bewusst ohne Bewertung - die kommt, wenn genug Tage gesammelt sind.
+    """
+    if not pv_shaping_planner:
+        return jsonify({'success': False, 'reason': 'Planer nicht verfuegbar'}), 200
+    try:
+        tage = min(120, max(1, int(request.args.get('days', 30))))
+        return jsonify({'success': True, 'tage': pv_shaping_planner.protokoll(tage)})
+    except Exception as e:
+        logger.error(f"Entscheidungsprotokoll fehlgeschlagen: {e}", exc_info=True)
+        return jsonify({'success': False, 'reason': str(e)}), 200
+
+
 @app.route('/api/battery_health')
 def api_battery_health():
     """

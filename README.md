@@ -292,6 +292,16 @@ Einmal im Monat wird die nutzbare Kapazität aus Register 1068 mitgeschrieben. D
 
 Monatlich statt täglich, weil die BMS-Schätzung mit Temperatur und Ladezustand um einige Prozent schwankt — bei täglicher Aufzeichnung ersäuft das Nutzsignal. Unter sechs Monaten weist die Auswertung selbst darauf hin, dass die Änderung noch im Rauschen liegt.
 
+## 📒 Entscheidungsprotokoll
+
+Die Steuerung schreibt jeden Tag mit, was sie entschieden hat und woraufhin — Deckel, Untergrenze, Ladegrenze, SOC-Spanne, welche Regel wie oft griff, dazu die Prognosen als Rohwert. Abrufbar unter `/api/decision_log?days=30`.
+
+Der Grund: SOC-Verlauf, Netzbezug und gemessene PV liegen ohnehin in Home Assistant. Was fehlte, war die vierte Größe — **was die Steuerung selbst entschieden hat**. Die stand nur im Log und wurde überschrieben. Damit ließ sich nachträglich nicht mehr klären, ob eine Entscheidung richtig war.
+
+Mit dem Protokoll wird aus einer Streitfrage ein Nachschlagevorgang. *War der Deckel von 95 % am 21. August nötig?* Die Antwort steht im Eintrag vom 22.: Fiel der Ladestand nachts nie unter 55 % und gab es keinen Netzbezug, war die Reserve überflüssig.
+
+Bewusst **ohne automatische Bewertung**. Welche Urteilsregel taugt, zeigt sich erst an gesammelten Daten — sie jetzt festzulegen hieße wieder, ohne Messung zu entscheiden. Die Auswertung lässt sich jederzeit rückwirkend über die Aufzeichnung laufen; ein nicht aufgezeichneter Tag ist dagegen verloren.
+
 ## 🛡️ Sicherheitshinweise
 
 - Das Add-on greift direkt auf den Wechselrichter zu. Falsche Werte können die Batterie schädigen.

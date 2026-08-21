@@ -47,6 +47,13 @@ class PVShapingPlanner:
     # ganze Prozent; ohne Totband erzeugt jede Prognoseaktualisierung einen
     # Schreibvorgang, obwohl sich am Geraet nichts aendert.
     SOC_TOTBAND_PROZENT = 1.5
+    # Wie viele Tage das Entscheidungsprotokoll aufbewahrt. 120 Tage decken
+    # eine Jahreszeit samt Uebergang ab und bleiben als JSON winzig.
+    PROTOKOLL_TAGE = 120
+    # Wie oft das Protokoll auf die Platte geschrieben wird. Der Regelzyklus
+    # laeuft alle 30 Sekunden - jedes Mal zu speichern waere Verschwendung,
+    # und mehr als ein paar Minuten Verlust bei einem Absturz waere schade.
+    PROTOKOLL_SPEICHERTAKT_S = 300.0
 
     def __init__(self, config: Dict, state_path: str = '/data/pv_shaping_state.json'):
         self.soc_corridor_min = config.get('soc_corridor_min', 30)
@@ -94,6 +101,7 @@ class PVShapingPlanner:
         # werden, nicht auf Basis einer alten Lage.
         self._knappheit_aktiv = False
         self._letzter_max_soc = None
+        self._protokoll_gespeichert = None
         # Zwischenspeicher der gemessenen PV-Erzeugung, gueltig fuer die
         # laufende Stunde. Vergangene Stunden aendern sich nicht mehr.
         self._pv_ist_cache = None
@@ -374,6 +382,82 @@ class PVShapingPlanner:
             'belastbar': len(monate) >= 6,
             'verlauf': [{'monat': m, 'kwh': verlauf[m]} for m in monate],
         }
+
+    # ------------------------------------------------------------------
+    # Entscheidungsprotokoll
+    # ------------------------------------------------------------------
+    # Von den Groessen, die eine Entscheidung im Nachhinein beurteilbar
+    # machen, liegen drei ohnehin in Home Assistant: SOC-Verlauf,
+    # Netzbezug und gemessene PV. Was fehlt, ist ausgerechnet das, was
+    # diese Steuerung selbst entschieden hat - Deckel, Ladegrenze, welche
+    # Regel griff und mit welchen Eingangsgroessen. Das stand bisher nur
+    # im Log und wurde ueberschrieben.
+    #
+    # Hier wird bewusst nur MITGESCHRIEBEN, nicht bewertet. Welche
+    # Urteilsregel taugt, laesst sich erst an gesammelten Daten sehen -
+    # sie jetzt zu entwerfen hiesse wieder, ohne Messung zu entscheiden.
+    # Die Bewertung kann jederzeit rueckwirkend darueber laufen, ein
+    # nicht aufgezeichneter Tag ist dagegen endgueltig verloren.
+    def protokolliere(self, now: datetime, max_soc: float, min_soc: float,
+                      max_charge_power: float, regel: str, current_soc: float,
+                      pv_heute_kwh: Optional[float], pv_morgen_kwh: Optional[float],
+                      ueberbrueckung_kwh: Optional[float],
+                      fehlbetrag_kwh: Optional[float]) -> None:
+        """Schreibt die Entscheidung dieses Zyklus in den Tageseintrag."""
+        tag = now.date().isoformat()
+        protokoll = self._state.setdefault('entscheidungen', {})
+        neuer_tag = tag not in protokoll
+
+        e = protokoll.setdefault(tag, {
+            'zyklen': 0,
+            'deckel_min': max_soc, 'deckel_max': max_soc,
+            'deckel_zuletzt': max_soc, 'deckel_wechsel': 0,
+            'untergrenze_min': min_soc, 'untergrenze_max': min_soc,
+            'ladegrenze_min': max_charge_power, 'ladegrenze_max': max_charge_power,
+            'soc_min': current_soc, 'soc_max': current_soc,
+            'regeln': {},
+        })
+
+        e['zyklen'] += 1
+        if abs(max_soc - e['deckel_zuletzt']) >= 0.05:
+            e['deckel_wechsel'] += 1
+        e['deckel_zuletzt'] = max_soc
+        e['deckel_min'] = min(e['deckel_min'], max_soc)
+        e['deckel_max'] = max(e['deckel_max'], max_soc)
+        e['untergrenze_min'] = min(e['untergrenze_min'], min_soc)
+        e['untergrenze_max'] = max(e['untergrenze_max'], min_soc)
+        e['ladegrenze_min'] = min(e['ladegrenze_min'], max_charge_power)
+        e['ladegrenze_max'] = max(e['ladegrenze_max'], max_charge_power)
+        e['soc_min'] = min(e['soc_min'], current_soc)
+        e['soc_max'] = max(e['soc_max'], current_soc)
+        e['regeln'][regel] = e['regeln'].get(regel, 0) + 1
+
+        # Eingangsgroessen als Rohwerte, jeweils der zuletzt gesehene Stand.
+        # Roh, weil die gelernte Korrektur sich aendert - fuer eine spaetere
+        # Auswertung muss nachvollziehbar bleiben, was die Prognose sagte.
+        for schluessel, wert in (('pv_prognose_heute_kwh', pv_heute_kwh),
+                                 ('pv_prognose_morgen_kwh', pv_morgen_kwh),
+                                 ('ueberbrueckung_kwh', ueberbrueckung_kwh),
+                                 ('fehlbetrag_morgen_kwh', fehlbetrag_kwh)):
+            if wert is not None:
+                e[schluessel] = round(wert, 2)
+
+        for veraltet in sorted(protokoll)[:-self.PROTOKOLL_TAGE]:
+            del protokoll[veraltet]
+
+        # Beim Tageswechsel sofort sichern, damit der abgeschlossene Tag
+        # nicht an einem Neustart haengenbleibt. Sonst im Sparttakt.
+        faellig = (self._protokoll_gespeichert is None or neuer_tag
+                   or (now - self._protokoll_gespeichert).total_seconds()
+                   >= self.PROTOKOLL_SPEICHERTAKT_S)
+        if faellig:
+            self._save_state()
+            self._protokoll_gespeichert = now
+
+    def protokoll(self, tage: int = 30) -> list:
+        """Die letzten Tageseintraege, aeltester zuerst."""
+        eintraege = self._state.get('entscheidungen') or {}
+        return [dict(eintraege[t], datum=t) for t in sorted(eintraege)[-tage:]]
 
     def _sunset_hour(self, pv_forecast: Dict[int, float]) -> Optional[int]:
         """Letzte Stunde, in der nennenswert PV erwartet wird."""
@@ -1189,6 +1273,7 @@ class PVShapingPlanner:
         # des Ziel-SOC nach hinten, statt vormittags voll durchzuladen.
         max_charge_power = configured_max_power
         throttle_reason = 'volle Ladeleistung'
+        throttle_regel = 'voll'
 
         pv_today = self.get_hourly_pv_forecast(ha_client, config)
         sunset = self._sunset_hour(pv_today)
@@ -1196,6 +1281,7 @@ class PVShapingPlanner:
 
         if sunset is None or sunrise is None:
             throttle_reason = 'keine PV-Prognose - volle Ladeleistung'
+            throttle_regel = 'keine_prognose'
 
         elif now.hour < sunrise or now.hour > sunset:
             # Ausserhalb der PV-Stunden bleibt die volle Ladeleistung stehen.
@@ -1208,6 +1294,7 @@ class PVShapingPlanner:
             # Batterie dauerhaft vom Laden gesperrt.
             max_charge_power = configured_max_power
             throttle_reason = 'ausserhalb der PV-Stunden - keine Begrenzung noetig'
+            throttle_regel = 'ausserhalb_pv'
 
         elif self.enable_charge_throttling:
             # Aktuelle Stunde zaehlt mit, deshalb +1
@@ -1239,11 +1326,13 @@ class PVShapingPlanner:
                 # zwischen 500 W und voller Leistung im Sekundenabstand.
                 self._knappheit_aktiv = False
                 max_charge_power = float(self.min_charge_power)
+                throttle_regel = 'ziel_erreicht'
                 throttle_reason = (f'Ziel-SOC {max_soc:.1f}% erreicht - '
                                    f'Deckel stoppt das Laden')
             elif self._im_vorrangfenster(now, pv_today):
                 pv_tag = sum(pv_today.values())
                 max_charge_power = configured_max_power
+                throttle_regel = 'vorrangfenster'
                 throttle_reason = (f'Vorrangfenster {self.priority_start}-{self.priority_end} Uhr '
                                    f'bei knapper Tagesprognose ({pv_tag:.1f} kWh) - '
                                    f'volle Ladeleistung, damit abends weniger Netzbezug noetig ist')
@@ -1261,6 +1350,7 @@ class PVShapingPlanner:
                 # Batterie mit voller Leistung, obwohl nichts zu retten war.
                 self._knappheit_aktiv = False
                 max_charge_power = float(self.min_charge_power)
+                throttle_regel = 'tagesende'
                 throttle_reason = (f'Tagesende: nur noch {rest_ueberschuss:.1f} kWh '
                                    f'Ueberschuss erwartet - nichts mehr zu verteilen')
 
@@ -1280,6 +1370,7 @@ class PVShapingPlanner:
                 # anteilige Verteilung: Liegt der Speicher zurueck, waechst
                 # der erlaubte Anteil dort von selbst.
                 max_charge_power = configured_max_power
+                throttle_regel = 'knappheit'
                 throttle_reason = (f'knapper Tag, keine Drosselung: erwarteter Ueberschuss '
                                    f'{rest_ueberschuss:.1f} kWh deckt den Rueckstand '
                                    f'{deficit_kwh:.1f} kWh nur knapp')
@@ -1294,13 +1385,32 @@ class PVShapingPlanner:
                 erlaubt_kwh = deficit_kwh * anteil
                 max_charge_power = min(configured_max_power,
                                        max(self.min_charge_power, erlaubt_kwh * 1000))
+                throttle_regel = 'verteilt'
                 throttle_reason = (f'{deficit_kwh:.1f} kWh nach Prognose verteilt '
                                    f'({anteil*100:.0f}% der Restsonne faellt in diese Stunde)')
+
+        # Entscheidung mitschreiben, bevor sie zurueckgegeben wird. Ein
+        # Fehler hier darf die Steuerung nicht anhalten - das Protokoll ist
+        # Beiwerk, die Grenzwerte sind die Aufgabe.
+        try:
+            self.protokolliere(
+                now=now, max_soc=max_soc, min_soc=min_soc,
+                max_charge_power=max_charge_power, regel=throttle_regel,
+                current_soc=current_soc,
+                pv_heute_kwh=sum(pv_today.values()) if pv_today else None,
+                pv_morgen_kwh=(sum(pv_morgen_fuer_deckel.values())
+                               if pv_morgen_fuer_deckel else None),
+                ueberbrueckung_kwh=overnight_kwh,
+                fehlbetrag_kwh=shortfall_kwh,
+            )
+        except Exception as e:
+            logger.debug(f"Entscheidungsprotokoll nicht geschrieben: {e}")
 
         plan.update({
             'max_soc': round(max_soc, 1),
             'min_soc': round(min_soc, 1),
             'max_charge_power': round(max_charge_power, 0),
+            'throttle_regel': throttle_regel,
             'max_discharge_power': discharge_limit,
             'reason': f'Deckel {max_soc:.1f}% ({cap_reason}); {throttle_reason}',
             'diagnostics': {

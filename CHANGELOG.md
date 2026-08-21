@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.17.0] - 2026-08-21
+
+### Added
+- **Entscheidungsprotokoll.** Die Steuerung schreibt mit, was sie an
+  welchem Tag entschieden hat: Deckel (Spanne und Anzahl der Wechsel),
+  Untergrenze, Ladegrenze, SOC-Spanne, und wie viele Zyklen auf welche
+  Regel entfielen - dazu die Eingangsgroessen als Rohwerte
+  (PV-Prognose heute und morgen, Ueberbrueckungsbedarf, Fehlbetrag).
+  Abrufbar unter `/api/decision_log?days=30`.
+
+  Anlass: Von den Groessen, die eine Entscheidung im Nachhinein
+  beurteilbar machen, liegen drei ohnehin in Home Assistant -
+  SOC-Verlauf, Netzbezug, gemessene PV. Was fehlte, war ausgerechnet
+  das, was die Steuerung selbst entschieden hat. Das stand nur im Log
+  und wurde ueberschrieben. In der Woche vom 17.-21.08. wurde deshalb
+  fuenfmal geraten statt nachgeschlagen.
+
+  Bewusst **ohne Bewertung**: Welche Urteilsregel taugt ("war die
+  Reserve noetig?"), laesst sich erst an gesammelten Daten sehen. Die
+  Auswertung kann jederzeit rueckwirkend darueber laufen - ein nicht
+  aufgezeichneter Tag ist dagegen endgueltig verloren.
+
+  Aufbewahrung 120 Tage, rund 60 kB. Gespeichert wird alle fuenf Minuten
+  und immer beim Tageswechsel, damit ein abgeschlossener Tag nicht an
+  einem Neustart haengenbleibt.
+- Stabiler Regelschluessel `throttle_regel` im Plan ('ziel_erreicht',
+  'vorrangfenster', 'tagesende', 'knappheit', 'verteilt',
+  'ausserhalb_pv', 'keine_prognose', 'voll'). Damit muss die spaetere
+  Auswertung keinen Log-Text zerlegen.
+
 ## [0.16.1] - 2026-08-17
 
 ### Fixed
