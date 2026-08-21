@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.17.3] - 2026-08-21
+
+### Fixed
+- **Kein Netzbezug wurde als Fehler gemeldet.** Liefert die Historie eines
+  Bezugszaehlers genau einen Eintrag, hat sich der Zaehler im Zeitraum
+  nicht bewegt - Home Assistant zeichnet nur Aenderungen auf. Bei einem
+  Bezugszaehler ist das kein Fehler, sondern das Ziel: Es wurde nichts
+  bezogen. Die Meldung fragte stattdessen nach "unavailable".
+
+  An realer Anlage: 3 Tage, ein einziger Zaehlerstand bei 285,10 kWh, und
+  ein Ladestand, der nie unter 42 % fiel. Die Batterie hat die Naechte
+  vollstaendig getragen.
+
+  Die Meldung sagt das jetzt so und nennt die Gegenprobe: Verlauf der
+  Entitaet oeffnen - eine waagrechte Linie bestaetigt es, gar keine
+  Anzeige heisst Recorder-Ausschluss.
+
 ## [0.17.2] - 2026-08-21
 
 ### Fixed

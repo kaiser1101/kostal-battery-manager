@@ -1004,7 +1004,21 @@ def _netz_auswertung(tage, live_since):
                 continue
 
         ergebnis['erfolg'] = False
-        if len(werte) < 2:
+        if len(werte) == 1 and quelle == 'energie':
+            # Genau ein Zaehlerstand heisst: der Zaehler hat sich im
+            # Zeitraum nicht bewegt. Home Assistant zeichnet nur
+            # Aenderungen auf. Bei einem BEZUGSzaehler ist das kein
+            # Fehler, sondern das Ziel - es wurde nichts bezogen.
+            ergebnis['kein_bezug'] = True
+            ergebnis['hinweis'] = (
+                f'Kein Netzbezug in den letzten {tage} Tagen. Der Zaehler '
+                f'{sensor} steht unveraendert bei {werte[0]:.2f} '
+                f'{einheit or "?"} - die Batterie hat die Naechte getragen. '
+                f'Zum Gegenpruefen: Verlauf der Entitaet in Home Assistant '
+                f'oeffnen. Eine waagrechte Linie bestaetigt es; zeigt er '
+                f'gar nichts an, ist die Entitaet vom Recorder '
+                f'ausgeschlossen.')
+        elif len(werte) < 2:
             ergebnis['hinweis'] = (
                 f'{sensor}: {len(history)} Eintraege in {tage} Tagen, davon '
                 f'{len(werte)} mit einem Zahlenwert. Fuer eine Tagessumme '
