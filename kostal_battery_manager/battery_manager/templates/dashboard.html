@@ -186,7 +186,8 @@
                 Wie gut trifft die PV-Prognose an deinem Standort, und wie
                 entwickelt sich die nutzbare Kapazität der Batterie?
             </div>
-            <button onclick="loadBatteryHealth()" class="btn btn-secondary">Auswerten</button>
+            <button onclick="loadBatteryHealth()" class="btn btn-secondary">Prognose &amp; Kapazität</button>
+            <button onclick="loadDecisionLog(30)" class="btn btn-secondary" style="margin-left:0.5rem;">Entscheidungen 30 Tage</button>
             <pre id="health-result" style="display:none; margin-top: 1rem; padding: 0.75rem;
                  background: rgba(128,128,128,0.12); border-radius: 6px; font-size: 0.8rem;
                  overflow-x: auto; white-space: pre;"></pre>
@@ -502,6 +503,47 @@ function fmtNetz(netz) {
     }
     t += `\n   Quelle: ${netz.sensor} (${netz.einheit})\n`;
     return t;
+}
+
+// v0.17.1 - Entscheidungsprotokoll. Braucht einen eigenen Knopf, weil
+// der Endpunkt ueber die Ingress-Adresse nicht von Hand aufrufbar ist:
+// Was man an die Seitenleisten-Adresse anhaengt, erreicht das Add-on nie.
+function loadDecisionLog(tage) {
+    const out = document.getElementById('health-result');
+    out.style.display = '';
+    out.textContent = 'Wird geladen...';
+
+    fetch(apiUrl('api/decision_log?days=' + tage))
+        .then(r => r.json())
+        .then(d => {
+            if (!d.success) { out.textContent = d.reason || 'Fehlgeschlagen'; return; }
+            if (!d.tage || !d.tage.length) {
+                out.textContent = 'Noch keine Aufzeichnung. Sie beginnt mit dem naechsten '
+                    + 'Regelzyklus; aussagekraeftig wird sie ab dem ersten vollen Tag.';
+                return;
+            }
+            const p = (x, n) => String(x === undefined || x === null ? '-' : x).padStart(n);
+            let t = 'WAS DIE STEUERUNG ENTSCHIEDEN HAT\n' + '='.repeat(58) + '\n\n';
+            d.tage.slice().reverse().forEach(e => {
+                t += `${e.datum}   ${e.zyklen} Zyklen\n`;
+                t += `   Deckel        ${p(e.deckel_min,5)} - ${p(e.deckel_max,5)} %`
+                   + `   (${e.deckel_wechsel} Wechsel)\n`;
+                t += `   Untergrenze   ${p(e.untergrenze_min,5)} - ${p(e.untergrenze_max,5)} %\n`;
+                t += `   Ladegrenze    ${p(e.ladegrenze_min,5)} - ${p(e.ladegrenze_max,5)} W\n`;
+                t += `   Ladestand     ${p(e.soc_min,5)} - ${p(e.soc_max,5)} %\n`;
+                t += `   Prognose      heute ${p(e.pv_prognose_heute_kwh,5)}`
+                   + `   morgen ${p(e.pv_prognose_morgen_kwh,5)} kWh\n`;
+                t += `   Bedarf        Nacht ${p(e.ueberbrueckung_kwh,5)}`
+                   + `   Fehlbetrag morgen ${p(e.fehlbetrag_morgen_kwh,5)} kWh\n`;
+                Object.entries(e.regeln || {}).sort((a,b) => b[1]-a[1]).forEach(([name, n]) => {
+                    const anteil = e.zyklen ? Math.round(n / e.zyklen * 100) : 0;
+                    t += `   ${name.padEnd(16)} ${String(n).padStart(5)} Zyklen  ${String(anteil).padStart(3)} %\n`;
+                });
+                t += '\n';
+            });
+            out.textContent = t;
+        })
+        .catch(e => { out.textContent = 'Fehler: ' + e; });
 }
 
 // v0.16.0 - Langzeitkennzahlen: Prognosegenauigkeit und Alterung

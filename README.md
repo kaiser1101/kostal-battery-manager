@@ -294,7 +294,9 @@ Monatlich statt täglich, weil die BMS-Schätzung mit Temperatur und Ladezustand
 
 ## 📒 Entscheidungsprotokoll
 
-Die Steuerung schreibt jeden Tag mit, was sie entschieden hat und woraufhin — Deckel, Untergrenze, Ladegrenze, SOC-Spanne, welche Regel wie oft griff, dazu die Prognosen als Rohwert. Abrufbar unter `/api/decision_log?days=30`.
+Die Steuerung schreibt jeden Tag mit, was sie entschieden hat und woraufhin — Deckel, Untergrenze, Ladegrenze, SOC-Spanne, welche Regel wie oft griff, dazu die Prognosen als Rohwert. Im Dashboard unter **🔬 Langzeit → Entscheidungen 30 Tage**.
+
+Die Daten liegen in `/data` des Add-on-Containers und sind von außen nicht erreichbar — weder über Samba noch über den Datei-Editor noch über Studio Code Server. Der Knopf im Dashboard ist der vorgesehene Weg; die Adresse `/api/decision_log` lässt sich über Ingress nicht von Hand aufrufen.
 
 Der Grund: SOC-Verlauf, Netzbezug und gemessene PV liegen ohnehin in Home Assistant. Was fehlte, war die vierte Größe — **was die Steuerung selbst entschieden hat**. Die stand nur im Log und wurde überschrieben. Damit ließ sich nachträglich nicht mehr klären, ob eine Entscheidung richtig war.
 

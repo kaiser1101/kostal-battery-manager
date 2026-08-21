@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.17.1] - 2026-08-21
+
+### Fixed
+- **Das Entscheidungsprotokoll war nicht aufrufbar.** Der Endpunkt
+  `/api/decision_log` liess sich ueber die Ingress-Adresse nicht von Hand
+  erreichen: `https://<host>/<slug>` ist die Seitenleisten-Seite, die das
+  Add-on in einem Rahmen laedt - was man dort anhaengt, kommt beim Add-on
+  nie an. Ein Endpunkt ohne Bedienelement ist fuer den Nutzer nicht
+  vorhanden. Die Karte "Langzeit" hat jetzt den Knopf
+  **Entscheidungen 30 Tage**.
+
 ## [0.17.0] - 2026-08-21
 
 ### Added
