@@ -991,10 +991,37 @@ def _netz_auswertung(tage, live_since):
                          'vergleich': grid_analysis.vergleichen(vorher, nachher)})
 
     if not ergebnis['gesamt']:
+        # Frueher stand hier pauschal "zu wenige Tage". Das ist nur EINE von
+        # drei moeglichen Ursachen gewesen - und ausgerechnet die, die man
+        # von aussen nicht pruefen kann. Jetzt nennt die Meldung die
+        # tatsaechlichen Zahlen, damit sich die Ursache ablesen laesst
+        # statt geraten werden muss.
+        werte = []
+        for eintrag in history:
+            try:
+                werte.append(float(eintrag.get('state')))
+            except (TypeError, ValueError):
+                continue
+
         ergebnis['erfolg'] = False
-        ergebnis['hinweis'] = ('Zu wenige verwertbare Tage. Der erste und letzte Tag '
-                               'werden verworfen, weil sie angeschnitten sind - es '
-                               'braucht also mindestens drei Tage Historie.')
+        if len(werte) < 2:
+            ergebnis['hinweis'] = (
+                f'{sensor}: {len(history)} Eintraege in {tage} Tagen, davon '
+                f'{len(werte)} mit einem Zahlenwert. Fuer eine Tagessumme '
+                f'braucht es mindestens zwei brauchbare Zaehlerstaende - '
+                f'steht der Sensor meist auf "unavailable"?')
+        elif max(werte) - min(werte) <= 0:
+            ergebnis['hinweis'] = (
+                f'{sensor}: Der Zaehler steht seit {tage} Tagen unveraendert '
+                f'bei {werte[0]:.1f} {einheit or "?"}. Entweder ist es der '
+                f'falsche Sensor, oder er wird nicht mehr aktualisiert.')
+        else:
+            ergebnis['hinweis'] = (
+                f'{sensor}: {len(werte)} Werte ueber {tage} Tage, Anstieg '
+                f'{max(werte) - min(werte):.1f} {einheit or "?"} - aber kein '
+                f'vollstaendiger Kalendertag darin. Der erste und letzte Tag '
+                f'werden verworfen, weil sie angeschnitten sind; es braucht '
+                f'also mindestens drei Tage Historie.')
 
     # Einspeisung, falls konfiguriert. Nur zur Einordnung: Sie zeigt, wie
     # viel Ueberschuss ungenutzt weggeht - der Teil, den ein groesserer

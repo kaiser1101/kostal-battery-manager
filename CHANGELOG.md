@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.17.2] - 2026-08-21
+
+### Fixed
+- **Die Netzbezug-Meldung nannte die falsche Ursache.** Kam keine
+  verwertbare Tagessumme zustande, stand dort pauschal "Zu wenige
+  verwertbare Tage" - obwohl das nur eine von drei Moeglichkeiten war und
+  ausgerechnet die, die sich von aussen nicht pruefen laesst. Die Meldung
+  nennt jetzt die tatsaechlichen Zahlen und unterscheidet:
+  Zaehler steht unveraendert (falscher Sensor oder keine Aktualisierung),
+  zu wenige Eintraege mit Zahlenwert (Sensor meist "unavailable"),
+  oder wirklich zu kurze Historie.
+
 ## [0.17.1] - 2026-08-21
 
 ### Fixed
