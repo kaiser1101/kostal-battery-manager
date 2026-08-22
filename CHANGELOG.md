@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.17.4] - 2026-08-22
+
+### Added
+- **Knopf "Historie pruefen"** in der Karte Langzeit. Er tastet fuer jede
+  wichtige Entitaet ab, wie weit die Rohzustaende zurueckreichen: Fenster,
+  Zahl der Eintraege, aeltester Eintrag.
+
+  Anlass: Im Log lieferte dieselbe Entitaet im selben Sekundenbruchteil
+  fuer 7 Tage nichts und fuer 3 Tage 100 Eintraege - bei identischem
+  Zeitstempelformat. In Home Assistant reichte die Kurve sichtbar weiter
+  zurueck. Der Grund dafuer ist, dass Home Assistant ZWEI Historien hat:
+  Rohzustaende (werden nach `purge_keep_days` geloescht, davon liest das
+  Add-on) und Langzeitstatistik (bleibt fuer immer, die zeigt der
+  Verlaufs-Graph). Statt weiter zu vermuten, wird jetzt gemessen.
+
+  Die Fenster fuer den SOC-Sensor sind 1 bis 30 Tage, damit die Grenze
+  auf den Tag genau ablesbar ist.
+
 ## [0.17.3] - 2026-08-21
 
 ### Fixed

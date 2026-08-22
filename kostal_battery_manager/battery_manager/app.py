@@ -1462,6 +1462,49 @@ def api_battery_schedule():
             'last_planned': None
         }), 500
 
+@app.route('/api/history_probe')
+def api_history_probe():
+    """
+    Tastet ab, wie weit die Historie einer Entitaet zurueckreicht (v0.17.4).
+
+    Anlass: Im Log lieferte dieselbe Entitaet im selben Sekundenbruchteil
+    fuer 7 Tage nichts und fuer 3 Tage 100 Eintraege - bei identischem
+    Zeitstempelformat. In Home Assistant reicht die Kurve aber sichtbar
+    weiter zurueck. Statt weiter zu vermuten, wird hier gemessen: fuer
+    jedes Fenster die Zahl der Eintraege und der aelteste Zeitstempel.
+
+    Bewusst nur auf Knopfdruck - das sind bis zu zwei Dutzend Abfragen.
+    """
+    if not ha_client:
+        return jsonify({'success': False, 'reason': 'Kein HA-Client'}), 200
+
+    kandidaten = [
+        ('Batterie-SOC', config.get('battery_soc_sensor'), [1, 2, 3, 4, 5, 6, 7, 10, 14, 30]),
+        ('Hausverbrauch', config.get('home_consumption_sensor'), [3, 7, 30]),
+        ('Netzbezug', config.get('grid_import_energy_sensor'), [3, 7, 30]),
+        ('Einspeisung', config.get('grid_export_energy_sensor'), [3, 7, 30]),
+    ]
+
+    ergebnis = []
+    for name, sensor, fenster in kandidaten:
+        sensor = (sensor or '').strip()
+        if not sensor:
+            continue
+        zeilen = []
+        for tage in fenster:
+            history = ha_client.get_history(
+                sensor, datetime.now() - timedelta(days=tage))
+            aeltester = None
+            if history:
+                aeltester = (history[0].get('last_changed')
+                             or history[0].get('last_updated') or '')[:19]
+            zeilen.append({'tage': tage, 'eintraege': len(history),
+                           'aeltester': aeltester})
+        ergebnis.append({'name': name, 'sensor': sensor, 'fenster': zeilen})
+
+    return jsonify({'success': True, 'sensoren': ergebnis})
+
+
 @app.route('/api/decision_log')
 def api_decision_log():
     """

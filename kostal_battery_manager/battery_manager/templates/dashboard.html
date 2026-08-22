@@ -188,6 +188,7 @@
             </div>
             <button onclick="loadBatteryHealth()" class="btn btn-secondary">Prognose &amp; Kapazität</button>
             <button onclick="loadDecisionLog(30)" class="btn btn-secondary" style="margin-left:0.5rem;">Entscheidungen 30 Tage</button>
+            <button onclick="loadHistoryProbe()" class="btn btn-secondary" style="margin-left:0.5rem;">Historie prüfen</button>
             <pre id="health-result" style="display:none; margin-top: 1rem; padding: 0.75rem;
                  background: rgba(128,128,128,0.12); border-radius: 6px; font-size: 0.8rem;
                  overflow-x: auto; white-space: pre;"></pre>
@@ -503,6 +504,41 @@ function fmtNetz(netz) {
     }
     t += `\n   Quelle: ${netz.sensor} (${netz.einheit})\n`;
     return t;
+}
+
+// v0.17.4 - Wie weit reicht die Historie zurueck? Im Log lieferte
+// dieselbe Entitaet fuer 7 Tage nichts und fuer 3 Tage 100 Eintraege,
+// bei gleichem Zeitstempelformat - in Home Assistant war die Kurve
+// aber sichtbar laenger. Statt zu vermuten: messen.
+function loadHistoryProbe() {
+    const out = document.getElementById('health-result');
+    out.style.display = '';
+    out.textContent = 'Wird gemessen - das dauert bis zu einer Minute...';
+
+    fetch(apiUrl('api/history_probe'))
+        .then(r => r.json())
+        .then(d => {
+            if (!d.success) { out.textContent = d.reason || 'Fehlgeschlagen'; return; }
+            let t = 'WIE WEIT REICHT DIE HISTORIE ZURUECK\n' + '='.repeat(58) + '\n\n';
+            (d.sensoren || []).forEach(s => {
+                t += `${s.name}\n   ${s.sensor}\n`;
+                t += '   Fenster   Eintraege   aeltester Eintrag\n';
+                s.fenster.forEach(f => {
+                    t += `   ${String(f.tage).padStart(3)} Tage`
+                       + `${String(f.eintraege).padStart(10)}`
+                       + `   ${f.aeltester || '-'}\n`;
+                });
+                t += '\n';
+            });
+            t += 'Lesehilfe: Steigt die Zahl mit dem Fenster und wandert der\n'
+               + 'aelteste Eintrag zurueck, ist alles in Ordnung. Bricht sie ab\n'
+               + 'einem Fenster auf 0 ein, liefert Home Assistant fuer diesen\n'
+               + 'Zeitraum nichts - dann liegen die Rohzustaende nicht mehr vor.\n'
+               + 'Der Verlaufs-Graph zeigt dann die Langzeitstatistik, die nie\n'
+               + 'geloescht wird - eine andere Quelle als die hier gelesene.';
+            out.textContent = t;
+        })
+        .catch(e => { out.textContent = 'Fehler: ' + e; });
 }
 
 // v0.17.1 - Entscheidungsprotokoll. Braucht einen eigenen Knopf, weil
