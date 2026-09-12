@@ -745,6 +745,130 @@ class PVShapingPlanner:
     # bevor sie als gescheitert vermerkt wird statt ewig offen zu bleiben.
     KALIBRIER_MAX_VERSUCHSTAGE = 3
 
+    def restbedarf_bis_sonnenaufgang(self, ha_client, config, now: datetime) -> Optional[float]:
+        """
+        Verbrauch von JETZT bis die Sonne morgen frueh wieder traegt.
+
+        Unterschied zu calculate_overnight_need_kwh: Das dort ist der
+        Bedarf der ganzen Nacht, gerechnet ab Sonnenuntergang - richtig fuer
+        die Frage "wie voll muss der Speicher am Abend sein". Fuer die
+        Untergrenze um 03:00 zaehlt aber nur, was noch KOMMT.
+
+        Returns:
+            kWh, oder None wenn wir gar nicht in der Nacht stehen.
+        """
+        if not self.consumption_learner:
+            return None
+
+        pv_heute = self.get_hourly_pv_forecast(ha_client, config)
+        pv_morgen = self.get_hourly_pv_forecast(
+            ha_client, config, for_date=(now + timedelta(days=1)).date())
+
+        sonnenuntergang = self._sunset_hour(pv_heute)
+        sonnenaufgang = self._sunrise_hour(pv_morgen)
+        if sonnenuntergang is None:
+            sonnenuntergang = 20
+        if sonnenaufgang is None:
+            sonnenaufgang = 8
+
+        # Stehen wir ueberhaupt in der Nacht? Vor Sonnenuntergang und nach
+        # Sonnenaufgang gibt es nichts zu ueberbruecken.
+        vor_mitternacht = now.hour >= sonnenuntergang
+        nach_mitternacht = now.hour < sonnenaufgang
+        if not (vor_mitternacht or nach_mitternacht):
+            return None
+
+        # Bis zum Sonnenaufgang zaehlen, angebrochene Stunde anteilig.
+        bedarf = 0.0
+        cursor = now
+        ziel = now.replace(hour=sonnenaufgang, minute=0, second=0, microsecond=0)
+        if vor_mitternacht:
+            ziel = ziel + timedelta(days=1)
+        if ziel <= now:
+            return None
+
+        while cursor < ziel:
+            naechste_volle = (cursor.replace(minute=0, second=0, microsecond=0)
+                              + timedelta(hours=1))
+            ende = min(naechste_volle, ziel)
+            anteil = (ende - cursor).total_seconds() / 3600.0
+            bedarf += anteil * self.consumption_learner.get_average_consumption(
+                cursor.hour, target_date=cursor.date())
+            cursor = ende
+
+        return bedarf
+
+    def _nachtabsenkung(self, ha_client, config, current_soc: float,
+                        battery_capacity: float, min_soc: float,
+                        now: datetime) -> tuple:
+        """
+        Senkt die Untergrenze nachts so weit, wie noetig ist, um ohne
+        Netzbezug bis zum Sonnenaufgang zu kommen - und keinen Punkt tiefer.
+
+        Der Gedanke: Steht die Untergrenze auf 30 %, der Speicher faellt um
+        03:00 darauf und das Haus zieht ab da Netzstrom, dann liegen noch
+        gut 2 kWh in der Batterie, die genau diesen Bezug vermieden haetten.
+        Energetisch ist das Herauslassen immer ein Gewinn, denn was die
+        Batterie nicht liefert, liefert das Netz.
+
+        BEWUSST vorausschauend statt als Reaktion auf gemessenen Netzbezug.
+        Reagieren hiesse: erst passiert, was nicht passieren soll, dann wird
+        gegengesteuert - beim naechsten Regelzyklus, also bis zu zehn
+        Minuten spaeter. Die Rechnung dagegen kennt den Restbedarf schon
+        vorher. Sie braucht ausserdem keinen Netzsensor und funktioniert
+        deshalb auch bei dem, der keinen konfiguriert hat.
+
+        BEWUSST nur so tief wie noetig. Reicht die normale Untergrenze fuer
+        die Nacht, bleibt sie stehen; die Tiefentladung gibt es nur dort, wo
+        sie tatsaechlich Netzbezug spart. Ein pauschal auf 10 % gesenkter
+        Korridor waere die schlechtere Loesung: gleicher Nutzen, aber jede
+        Nacht die volle Entladetiefe.
+
+        Returns:
+            (min_soc, hinweis) - hinweis ist '' wenn nichts geaendert wurde.
+        """
+        boden = float(config.get('soc_night_floor') or 0)
+        if boden <= 0:
+            return min_soc, ''
+
+        boden = max(boden, float(self.soc_hard_safety_min))
+        if boden >= min_soc:
+            # Nichts zu holen - die Untergrenze liegt schon auf oder unter
+            # dem Nachtboden.
+            return min_soc, ''
+
+        restbedarf = self.restbedarf_bis_sonnenaufgang(ha_client, config, now)
+        if restbedarf is None:
+            return min_soc, ''
+
+        verfuegbar = max(0.0, (current_soc - min_soc) / 100.0 * battery_capacity)
+        if restbedarf <= verfuegbar:
+            # Die Nacht geht sich mit der normalen Untergrenze aus.
+            return min_soc, ''
+
+        # So tief, dass der Restbedarf gedeckt ist - nicht tiefer.
+        noetig = current_soc - (restbedarf / battery_capacity * 100.0)
+        neuer_boden = max(boden, noetig)
+        if neuer_boden >= min_soc:
+            return min_soc, ''
+
+        gewonnen = (min_soc - neuer_boden) / 100.0 * battery_capacity
+        hinweis = (f'Untergrenze fuer die Nacht auf {neuer_boden:.0f}% gesenkt: '
+                   f'bis Sonnenaufgang fehlen {restbedarf:.1f} kWh, verfuegbar '
+                   f'waren {verfuegbar:.1f} kWh - das holt {gewonnen:.1f} kWh '
+                   f'aus der Batterie statt aus dem Netz')
+
+        # Sagen, wenn tiefer noetig waere, als erlaubt ist. Sonst sucht man
+        # vergeblich, warum bei einem Nachtboden von 10 % die Grenze auf
+        # 15 % stehen bleibt - die harte Notbremse haelt sie dort.
+        if noetig < neuer_boden - 0.1:
+            grenze = ('die harte Notbremse soc_hard_safety_min'
+                      if float(self.soc_hard_safety_min) >= float(config.get('soc_night_floor') or 0)
+                      else 'der eingestellte Nachtboden soc_night_floor')
+            hinweis += (f'; ganz ohne Netzbezug waeren {noetig:.0f}% noetig, '
+                        f'dort haelt {grenze} bei {neuer_boden:.0f}%')
+        return float(neuer_boden), hinweis
+
     def setze_manuelle_grenzen(self, max_soc=None, min_soc=None,
                                now: Optional[datetime] = None) -> Dict:
         """
@@ -1486,6 +1610,12 @@ class PVShapingPlanner:
                            f'(weniger Netzbezug in der Nacht)')
         else:
             min_soc = float(self.soc_corridor_min)
+
+        # --- 4a. Nachtabsenkung der Untergrenze -----------------------
+        min_soc, nacht_hinweis = self._nachtabsenkung(
+            ha_client, config, current_soc, battery_capacity, min_soc, now)
+        if nacht_hinweis:
+            cap_reason += f'; {nacht_hinweis}'
 
         # --- 4b. Manuelle Grenzen ueberschreiben ----------------------
         # Bewusst HIER, nach der Rechnung und vor der Drosselung: Der

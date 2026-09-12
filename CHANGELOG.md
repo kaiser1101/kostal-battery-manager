@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.19.0] - 2026-09-12
+
+### Added
+- **Die Untergrenze sinkt nachts so weit, wie noetig ist, um ohne Netzbezug
+  bis zum Sonnenaufgang zu kommen - und keinen Punkt tiefer.**
+  Neue Option `soc_night_floor` (Voreinstellung 10 %, 0 = aus).
+
+  Anlass: Steht die Untergrenze auf 30 %, faellt der Speicher um 03:00
+  darauf und das Haus zieht ab da Netzstrom, dann liegen noch gut 2 kWh in
+  der Batterie, die genau diesen Bezug vermieden haetten. Energetisch ist
+  das Herauslassen immer ein Gewinn: Was die Batterie nicht liefert,
+  liefert das Netz.
+
+  **Vorausschauend statt als Reaktion auf gemessenen Netzbezug.** Reagieren
+  hiesse: erst passiert, was nicht passieren soll, dann wird gegengesteuert
+  - beim naechsten Regelzyklus, also bis zu zehn Minuten spaeter. Die
+  Rechnung kennt den Restbedarf schon vorher, braucht keinen Netzsensor und
+  funktioniert deshalb auch ohne konfigurierten Zaehler.
+
+  **Nur so tief wie noetig.** Reicht die normale Untergrenze fuer die
+  Nacht, bleibt sie stehen. Ein pauschal auf 10 % gesenkter Korridor waere
+  die schlechtere Loesung: gleicher Nutzen, aber jede Nacht die volle
+  Entladetiefe.
+
+  Grundlage ist `restbedarf_bis_sonnenaufgang()` - der gelernte Verbrauch
+  von JETZT bis zum Sonnenaufgang, angebrochene Stunde anteilig. Das
+  bestehende `calculate_overnight_need_kwh()` taugt dafuer nicht: Es rechnet
+  ab Sonnenuntergang und beantwortet die andere Frage, naemlich wie voll der
+  Speicher am Abend sein muss.
+
+  `soc_hard_safety_min` bleibt die aeussere Grenze. Steht sie auf 15,
+  wirkt ein Nachtboden von 10 nicht tiefer als 15 - die Begruendung sagt
+  das jetzt ausdruecklich, statt es stillschweigend zu tun. Ein manueller
+  Eingriff sticht die Nachtabsenkung.
+
 ## [0.18.2] - 2026-09-12
 
 Vier Befunde aus den Betriebsprotokollen vom 11. und 12. September.

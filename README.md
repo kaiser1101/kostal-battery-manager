@@ -292,6 +292,14 @@ Einmal im Monat wird die nutzbare Kapazität aus Register 1068 mitgeschrieben. D
 
 Monatlich statt täglich, weil die BMS-Schätzung mit Temperatur und Ladezustand um einige Prozent schwankt — bei täglicher Aufzeichnung ersäuft das Nutzsignal. Unter sechs Monaten weist die Auswertung selbst darauf hin, dass die Änderung noch im Rauschen liegt.
 
+## 🌙 Nachtabsenkung der Untergrenze
+
+Fällt der Speicher nachts auf die Untergrenze und das Haus zieht ab da Netzstrom, liegt darunter noch Energie, die genau diesen Bezug vermieden hätte. `soc_night_floor` (Voreinstellung 10 %) erlaubt, diese Reserve zu nutzen.
+
+Gesenkt wird **vorausschauend und nur so weit wie nötig**: Das Add-on rechnet den gelernten Verbrauch von jetzt bis zum Sonnenaufgang und senkt die Grenze genau so tief, dass er gedeckt ist. Reicht die normale Untergrenze für die Nacht, bleibt sie stehen — die tiefere Entladung gibt es nur in den Nächten, in denen sie tatsächlich Netzbezug spart.
+
+Kein Netzsensor nötig. `soc_hard_safety_min` bleibt die äußere Grenze: Steht sie auf 15, wirkt ein Nachtboden von 10 nicht tiefer als 15 — wer wirklich bis 10 % gehen will, muss auch die Notbremse senken. Die Begründung im Dashboard nennt diesen Fall.
+
 ## ✋ Grenzen für heute von Hand setzen
 
 In der Karte **🛡️ Batterieschonung** lassen sich Deckel und Untergrenze für den laufenden Tag überschreiben.
