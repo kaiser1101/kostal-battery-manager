@@ -292,6 +292,18 @@ Einmal im Monat wird die nutzbare Kapazität aus Register 1068 mitgeschrieben. D
 
 Monatlich statt täglich, weil die BMS-Schätzung mit Temperatur und Ladezustand um einige Prozent schwankt — bei täglicher Aufzeichnung ersäuft das Nutzsignal. Unter sechs Monaten weist die Auswertung selbst darauf hin, dass die Änderung noch im Rauschen liegt.
 
+## ✋ Grenzen für heute von Hand setzen
+
+In der Karte **🛡️ Batterieschonung** lassen sich Deckel und Untergrenze für den laufenden Tag überschreiben.
+
+Gedacht ist das für Tage, an denen du weißt, dass es sich nicht ausgeht — Gäste, Wäsche, eine Wetterlage, die die Prognose nicht sieht. **Damit du die Strategie nicht abschalten musst.** Abschalten wäre die grobe Lösung und kostet außerdem die Aufzeichnung.
+
+Der Eingriff **gilt bis Mitternacht und hebt sich dann von selbst auf**. Das ist Absicht: Ein Eingriff, den man vergessen kann, wäre so schlecht wie das Abschalten — er bliebe wochenlang stehen, und niemand wüsste, warum der Speicher täglich voll ist.
+
+Beide Felder sind einzeln setzbar; ein leeres Feld wird weiter gerechnet. Die harte Notbremse `soc_hard_safety_min` bleibt in jedem Fall wirksam, und zwischen beiden Grenzen bleiben mindestens 5 Punkte Abstand.
+
+**Die Drosselung bleibt aktiv.** Der Eingriff hebt das Ziel an, nicht die Schonung auf: Geladen wird weiterhin über den Tag verteilt statt mit voller Leistung.
+
 ## 📒 Entscheidungsprotokoll
 
 Die Steuerung schreibt jeden Tag mit, was sie entschieden hat und woraufhin — Deckel, Untergrenze, Ladegrenze, SOC-Spanne, welche Regel wie oft griff, dazu die Prognosen als Rohwert. Im Dashboard unter **🔬 Langzeit → Entscheidungen 30 Tage**.

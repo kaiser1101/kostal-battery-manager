@@ -415,10 +415,16 @@ class PVShapingPlanner:
             'untergrenze_min': min_soc, 'untergrenze_max': min_soc,
             'ladegrenze_min': max_charge_power, 'ladegrenze_max': max_charge_power,
             'soc_min': current_soc, 'soc_max': current_soc,
-            'regeln': {},
+            'regeln': {}, 'zyklen_manuell': 0,
         })
 
         e['zyklen'] += 1
+        # Zyklen mit manuellem Eingriff getrennt zaehlen. Ein Tag, an dem
+        # von Hand eingegriffen wurde, sagt nichts ueber die Guete der
+        # Rechnung aus - die spaetere Auswertung muss ihn aussortieren
+        # koennen, statt ihn als Beleg zu werten.
+        if self.manuelle_grenzen(now):
+            e['zyklen_manuell'] = e.get('zyklen_manuell', 0) + 1
         if abs(max_soc - e['deckel_zuletzt']) >= 0.05:
             e['deckel_wechsel'] += 1
         e['deckel_zuletzt'] = max_soc
@@ -653,6 +659,98 @@ class PVShapingPlanner:
             schwelle *= self.KNAPPHEIT_HYSTERESE
         self._knappheit_aktiv = rest_ueberschuss < schwelle
         return self._knappheit_aktiv
+
+    # ------------------------------------------------------------------
+    # Manuelle Grenzen
+    # ------------------------------------------------------------------
+    # Zweck ist ausdruecklich, dass die Strategie NICHT abgeschaltet werden
+    # muss, wenn man weiss, dass es sich an einem Tag nicht ausgeht - Gaeste,
+    # Waesche, eine Wetterlage, die die Prognose nicht sieht. Abschalten
+    # waere die grobe Loesung; sie kostet ausserdem die Aufzeichnung.
+    #
+    # Deshalb laeuft der Eingriff am Tagesende von selbst ab. Ein Eingriff,
+    # den man vergessen kann, waere so schlecht wie das Abschalten: Er bliebe
+    # wochenlang stehen, und niemand wuesste, warum der Speicher taeglich
+    # voll ist.
+    MANUELL_MIN_ABSTAND = 5.0   # Prozentpunkte zwischen Unter- und Obergrenze
+
+    def setze_manuelle_grenzen(self, max_soc=None, min_soc=None,
+                               now: Optional[datetime] = None) -> Dict:
+        """
+        Setzt Deckel und/oder Untergrenze von Hand, gueltig bis Tagesende.
+
+        Beide Werte sind einzeln setzbar: Wer nur den Deckel anhebt, laesst
+        die Untergrenze weiter rechnen.
+        """
+        now = now or datetime.now().astimezone()
+        tagesende = now.replace(hour=23, minute=59, second=59, microsecond=0)
+
+        bisher = (self._state.get('manuelle_grenzen') or {})
+        eintrag = {
+            'max_soc': float(max_soc) if max_soc is not None else bisher.get('max_soc'),
+            'min_soc': float(min_soc) if min_soc is not None else bisher.get('min_soc'),
+            'gesetzt': now.isoformat(timespec='seconds'),
+            'gueltig_bis': tagesende.isoformat(timespec='seconds'),
+        }
+        self._state['manuelle_grenzen'] = eintrag
+        self._save_state()
+        logger.info(f"Manuelle Grenzen gesetzt: max_soc={eintrag['max_soc']} "
+                    f"min_soc={eintrag['min_soc']}, gueltig bis {tagesende:%H:%M}")
+        return eintrag
+
+    def loesche_manuelle_grenzen(self) -> None:
+        """Hebt den Eingriff sofort auf - die Rechnung uebernimmt wieder."""
+        if self._state.pop('manuelle_grenzen', None) is not None:
+            self._save_state()
+            logger.info("Manuelle Grenzen aufgehoben - die Rechnung gilt wieder")
+
+    def manuelle_grenzen(self, now: Optional[datetime] = None) -> Optional[Dict]:
+        """Aktive manuelle Grenzen, oder None. Abgelaufene werden entfernt."""
+        eintrag = self._state.get('manuelle_grenzen')
+        if not eintrag:
+            return None
+        now = now or datetime.now().astimezone()
+        try:
+            bis = datetime.fromisoformat(eintrag['gueltig_bis'])
+        except Exception:
+            self.loesche_manuelle_grenzen()
+            return None
+        if now > bis:
+            logger.info("Manuelle Grenzen abgelaufen - die Rechnung gilt wieder")
+            self.loesche_manuelle_grenzen()
+            return None
+        if eintrag.get('max_soc') is None and eintrag.get('min_soc') is None:
+            return None
+        return eintrag
+
+    def _grenzen_anwenden(self, max_soc: float, min_soc: float,
+                          now: datetime) -> tuple:
+        """
+        Legt die manuellen Grenzen ueber die gerechneten.
+
+        Gibt (max_soc, min_soc, hinweis_oder_None) zurueck. Die Werte werden
+        gegen die harte Notbremse und gegeneinander begrenzt - ein Deckel
+        unterhalb der Untergrenze waere sonst ein blockierter Speicher.
+        """
+        eintrag = self.manuelle_grenzen(now)
+        if not eintrag:
+            return max_soc, min_soc, None
+
+        teile = []
+        if eintrag.get('min_soc') is not None:
+            min_soc = max(float(self.soc_hard_safety_min),
+                          min(99.0, float(eintrag['min_soc'])))
+            teile.append(f'Untergrenze {min_soc:.0f}%')
+        if eintrag.get('max_soc') is not None:
+            max_soc = min(100.0, max(min_soc + self.MANUELL_MIN_ABSTAND,
+                                     float(eintrag['max_soc'])))
+            teile.append(f'Deckel {max_soc:.0f}%')
+        else:
+            # Untergrenze allein darf den gerechneten Deckel nicht ueberholen.
+            max_soc = max(max_soc, min_soc + self.MANUELL_MIN_ABSTAND)
+
+        bis = eintrag['gueltig_bis'][11:16]
+        return max_soc, min_soc, f"MANUELL: {', '.join(teile)} bis {bis} Uhr"
 
     def _deckel_mit_totband(self, roh_max_soc: float) -> float:
         """
@@ -1267,6 +1365,18 @@ class PVShapingPlanner:
         else:
             min_soc = float(self.soc_corridor_min)
 
+        # --- 4b. Manuelle Grenzen ueberschreiben ----------------------
+        # Bewusst HIER, nach der Rechnung und vor der Drosselung: Der
+        # Rueckstand (max_soc - current_soc) bestimmt die erlaubte
+        # Ladeleistung, also wirkt ein angehobener Deckel automatisch auch
+        # auf sie - genau das ist gewollt. Geladen wird trotzdem verteilt
+        # und nicht mit voller Leistung; der Eingriff hebt das Ziel an,
+        # nicht die Schonung auf.
+        max_soc, min_soc, manuell_hinweis = self._grenzen_anwenden(
+            max_soc, min_soc, now)
+        if manuell_hinweis:
+            cap_reason += f'; {manuell_hinweis}'
+
         # --- 5. Ladeleistung drosseln ---------------------------------
         # Die noch fehlende Energie ueber die verbleibenden PV-Stunden
         # verteilen. Das senkt die C-Rate UND verschiebt das Erreichen
@@ -1424,6 +1534,7 @@ class PVShapingPlanner:
                 'knapp_morgen': knapp_morgen,
                 'soc_obergrenze': round(obergrenze, 1),
                 'soc_deckel_roh': round(roh_max_soc, 1),
+                'manuelle_grenzen': self.manuelle_grenzen(now),
                 'knappheit_aktiv': self._knappheit_aktiv,
                 'pv_bias': self.bias_diagnose(),
                 'overnight_breakdown': self.last_overnight_breakdown,

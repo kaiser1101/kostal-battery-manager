@@ -225,6 +225,32 @@
                 </div>
             </div>
             <div id="shaping-readback" style="margin-top: 1.25rem; font-size: 0.85rem; opacity: 0.7;"></div>
+
+            <!-- v0.18.0 - Grenzen von Hand setzen. Damit man die Strategie an
+                 einem Tag, von dem man weiss, dass es sich nicht ausgeht, nicht
+                 abschalten muss. Gilt bis Tagesende und laeuft von selbst ab. -->
+            <div style="margin-top: 1.25rem; border-top: 1px solid rgba(128,128,128,0.25); padding-top: 1rem;">
+                <div style="font-weight: 600; margin-bottom: 0.6rem;">Grenzen für heute von Hand setzen</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end;">
+                    <label style="font-size: 0.8rem; opacity: 0.75;">Deckel %<br>
+                        <input type="number" id="manual-max-soc" min="0" max="100" step="1"
+                               placeholder="z.B. 90"
+                               style="width: 7rem; padding: 0.4rem; font-size: 1rem;"></label>
+                    <label style="font-size: 0.8rem; opacity: 0.75;">Untergrenze %<br>
+                        <input type="number" id="manual-min-soc" min="0" max="100" step="1"
+                               placeholder="z.B. 25"
+                               style="width: 7rem; padding: 0.4rem; font-size: 1rem;"></label>
+                    <button onclick="setManualLimits()" class="btn btn-primary">Setzen</button>
+                    <button onclick="clearManualLimits()" class="btn btn-secondary">Aufheben</button>
+                </div>
+                <div id="manual-limits-state" style="font-size: 0.85rem; margin-top: 0.7rem;"></div>
+                <div style="font-size: 0.8rem; opacity: 0.65; margin-top: 0.5rem;">
+                    Gilt bis Mitternacht und hebt sich dann von selbst auf — gedacht für Tage,
+                    an denen du weißt, dass es sich nicht ausgeht. Leer gelassene Felder werden
+                    weiter gerechnet. Geladen wird weiterhin verteilt statt mit voller Leistung:
+                    Der Eingriff hebt das Ziel an, nicht die Schonung auf.
+                </div>
+            </div>
             <div style="margin-top: 1.25rem; border-top: 1px solid rgba(128,128,128,0.25); padding-top: 1rem;">
                 <button onclick="runRegisterTest()" class="btn btn-secondary">
                     🔬 Registertest ausführen
@@ -506,6 +532,61 @@ function fmtNetz(netz) {
     return t;
 }
 
+// v0.18.0 - Grenzen von Hand setzen bzw. aufheben.
+function manualLimitsState(grenzen, fehler) {
+    const el = document.getElementById('manual-limits-state');
+    if (fehler) {
+        el.textContent = fehler;
+        el.style.color = '#b45309';
+        return;
+    }
+    el.style.color = '';
+    if (!grenzen) {
+        el.textContent = 'Kein Eingriff aktiv – es gilt die Rechnung.';
+        return;
+    }
+    const teile = [];
+    if (grenzen.max_soc !== null && grenzen.max_soc !== undefined)
+        teile.push('Deckel ' + Math.round(grenzen.max_soc) + ' %');
+    if (grenzen.min_soc !== null && grenzen.min_soc !== undefined)
+        teile.push('Untergrenze ' + Math.round(grenzen.min_soc) + ' %');
+    el.textContent = 'Aktiv: ' + teile.join(', ')
+        + ' – gilt bis ' + (grenzen.gueltig_bis || '').substring(11, 16) + ' Uhr.';
+}
+
+function setManualLimits() {
+    const nutz = v => (v === '' ? null : Number(v));
+    fetch(apiUrl('api/manual_limits'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            max_soc: nutz(document.getElementById('manual-max-soc').value),
+            min_soc: nutz(document.getElementById('manual-min-soc').value)
+        })
+    })
+    .then(r => r.json())
+    .then(d => manualLimitsState(d.grenzen, d.success ? null : d.reason))
+    .catch(e => manualLimitsState(null, 'Fehler: ' + e));
+}
+
+function clearManualLimits() {
+    fetch(apiUrl('api/manual_limits/clear'), {method: 'POST'})
+        .then(r => r.json())
+        .then(d => {
+            document.getElementById('manual-max-soc').value = '';
+            document.getElementById('manual-min-soc').value = '';
+            manualLimitsState(null, d.success ? null : d.reason);
+        })
+        .catch(e => manualLimitsState(null, 'Fehler: ' + e));
+}
+
+function loadManualLimits() {
+    fetch(apiUrl('api/manual_limits'))
+        .then(r => r.json())
+        .then(d => manualLimitsState(d.grenzen, null))
+        .catch(() => {});
+}
+
 // v0.17.4 - Wie weit reicht die Historie zurueck? Im Log lieferte
 // dieselbe Entitaet fuer 7 Tage nichts und fuer 3 Tage 100 Eintraege,
 // bei gleichem Zeitstempelformat - in Home Assistant war die Kurve
@@ -561,7 +642,9 @@ function loadDecisionLog(tage) {
             const p = (x, n) => String(x === undefined || x === null ? '-' : x).padStart(n);
             let t = 'WAS DIE STEUERUNG ENTSCHIEDEN HAT\n' + '='.repeat(58) + '\n\n';
             d.tage.slice().reverse().forEach(e => {
-                t += `${e.datum}   ${e.zyklen} Zyklen\n`;
+                t += `${e.datum}   ${e.zyklen} Zyklen`
+                   + (e.zyklen_manuell ? `   (${e.zyklen_manuell} davon manuell)` : '')
+                   + '\n';
                 t += `   Deckel        ${p(e.deckel_min,5)} - ${p(e.deckel_max,5)} %`
                    + `   (${e.deckel_wechsel} Wechsel)\n`;
                 t += `   Untergrenze   ${p(e.untergrenze_min,5)} - ${p(e.untergrenze_max,5)} %\n`;
@@ -1436,6 +1519,8 @@ function initCharts() {
     setInterval(updatePriceChart, 300000);
     setInterval(updateConsumptionChart, 300000);
     setInterval(updateOverviewChart, 300000);  // v0.14.0
+    loadManualLimits();                        // v0.18.0
+    setInterval(loadManualLimits, 60000);      // laeuft um Mitternacht ab
 }
 
 function updatePriceChart() {

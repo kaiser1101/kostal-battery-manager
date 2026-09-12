@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.18.0] - 2026-09-12
+
+### Added
+- **Deckel und Untergrenze von Hand setzen.** Zwei Eingabefelder in der
+  Karte Batterieschonung, dazu "Setzen" und "Aufheben".
+
+  Zweck: An einem Tag, von dem man weiss, dass es sich nicht ausgeht -
+  Gaeste, Waesche, eine Wetterlage, die die Prognose nicht sieht - soll
+  die Strategie nicht abgeschaltet werden muessen. Abschalten waere die
+  grobe Loesung und kostet ausserdem die Aufzeichnung.
+
+  **Der Eingriff gilt bis Mitternacht und hebt sich dann von selbst auf.**
+  Ein Eingriff, den man vergessen kann, waere so schlecht wie das
+  Abschalten: Er bliebe wochenlang stehen, und niemand wuesste, warum der
+  Speicher taeglich voll ist.
+
+  Beide Felder sind einzeln setzbar - wer nur den Deckel anhebt, laesst
+  die Untergrenze weiter rechnen. Begrenzt wird gegen die harte Notbremse
+  (`soc_hard_safety_min`) und gegeneinander: Ein Deckel unterhalb der
+  Untergrenze waere ein blockierter Speicher.
+
+  **Die Drosselung bleibt aktiv.** Der Eingriff hebt das Ziel an, nicht
+  die Schonung auf - geladen wird weiterhin ueber den Tag verteilt.
+
+- Das Entscheidungsprotokoll zaehlt Zyklen mit manuellem Eingriff getrennt
+  (`zyklen_manuell`). Ein von Hand ueberschriebener Tag sagt nichts ueber
+  die Guete der Rechnung aus; die spaetere Auswertung muss ihn aussortieren
+  koennen, statt ihn als Beleg zu werten.
+
 ## [0.17.4] - 2026-08-22
 
 ### Added

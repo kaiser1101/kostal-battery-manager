@@ -1462,6 +1462,68 @@ def api_battery_schedule():
             'last_planned': None
         }), 500
 
+@app.route('/api/manual_limits', methods=['GET', 'POST'])
+def api_manual_limits():
+    """
+    Deckel und Untergrenze von Hand setzen (v0.18.0).
+
+    Zweck: An einem Tag, von dem man weiss, dass es sich nicht ausgeht,
+    soll man die Strategie nicht abschalten muessen. Der Eingriff gilt bis
+    Tagesende und hebt sich dann von selbst auf.
+
+    POST {"max_soc": 90, "min_soc": 30} - beide Felder einzeln optional,
+    null loescht das jeweilige Feld nicht, sondern laesst es unveraendert.
+    """
+    if not pv_shaping_planner:
+        return jsonify({'success': False, 'reason': 'Planer nicht verfuegbar'}), 200
+
+    if request.method == 'GET':
+        return jsonify({'success': True,
+                        'grenzen': pv_shaping_planner.manuelle_grenzen()})
+
+    daten = request.get_json(silent=True) or {}
+
+    def pruefe(feld):
+        wert = daten.get(feld)
+        if wert is None or wert == '':
+            return None
+        try:
+            zahl = float(wert)
+        except (TypeError, ValueError):
+            raise ValueError(f'{feld}: "{wert}" ist keine Zahl.')
+        if not 0 <= zahl <= 100:
+            raise ValueError(f'{feld}: {zahl:.0f} liegt ausserhalb von 0 bis 100 %.')
+        return zahl
+
+    try:
+        max_soc, min_soc = pruefe('max_soc'), pruefe('min_soc')
+    except ValueError as e:
+        return jsonify({'success': False, 'reason': str(e)}), 200
+
+    if max_soc is None and min_soc is None:
+        return jsonify({'success': False,
+                        'reason': 'Kein Wert angegeben. Trage Deckel oder '
+                                  'Untergrenze ein, oder hebe den Eingriff auf.'}), 200
+
+    if max_soc is not None and min_soc is not None and max_soc <= min_soc:
+        return jsonify({'success': False,
+                        'reason': f'Der Deckel ({max_soc:.0f} %) muss ueber der '
+                                  f'Untergrenze ({min_soc:.0f} %) liegen.'}), 200
+
+    grenzen = pv_shaping_planner.setze_manuelle_grenzen(max_soc=max_soc,
+                                                        min_soc=min_soc)
+    return jsonify({'success': True, 'grenzen': grenzen})
+
+
+@app.route('/api/manual_limits/clear', methods=['POST'])
+def api_manual_limits_clear():
+    """Hebt den manuellen Eingriff sofort auf."""
+    if not pv_shaping_planner:
+        return jsonify({'success': False, 'reason': 'Planer nicht verfuegbar'}), 200
+    pv_shaping_planner.loesche_manuelle_grenzen()
+    return jsonify({'success': True, 'grenzen': None})
+
+
 @app.route('/api/history_probe')
 def api_history_probe():
     """
