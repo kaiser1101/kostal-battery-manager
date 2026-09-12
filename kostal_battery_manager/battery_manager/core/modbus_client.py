@@ -106,19 +106,44 @@ class ModbusClient:
             builder.add_32bit_float(float(value))
             payload = builder.build()
 
-            result = self.client.write_registers(
-                address=address,
-                values=payload,
-                slave=self.slave_id,
-                skip_encode=True
-            )
+            # Ein Versuch, und falls die Verbindung tot war, ein zweiter.
+            #
+            # Der Wechselrichter schliesst eine ungenutzte TCP-Verbindung
+            # von sich aus. Unser Socket sieht danach noch offen aus, also
+            # laesst _ensure_connection() den Schreibvorgang durch, und er
+            # laeuft ins Leere ("No Response received"). Erst der NAECHSTE
+            # Aufruf bemerkt das und verbindet neu - der erste Wert ist
+            # dann schon verloren.
+            #
+            # Das traf ausgerechnet den wichtigsten Fall: Beim Beenden ist
+            # die Verbindung nach dem Regelintervall immer kalt, und
+            # Register 1038 wird als erstes geschrieben. Zweimal von zwei
+            # Versuchen blieb die Ladegrenze deshalb stehen, statt
+            # freigegeben zu werden - eine auf 500 W gedrosselte Batterie,
+            # ohne dass irgendwo ersichtlich waere, warum.
+            for versuch in (1, 2):
+                result = self.client.write_registers(
+                    address=address,
+                    values=payload,
+                    slave=self.slave_id,
+                    skip_encode=True
+                )
+                if not result.isError():
+                    logger.info(f"{label} = {value} (Register {address})")
+                    return True
 
-            if result.isError():
-                logger.error(f"Modbus write error for {label} (Register {address}): {result}")
-                return False
-
-            logger.info(f"{label} = {value} (Register {address})")
-            return True
+                if versuch == 1:
+                    logger.warning(f"Schreibversuch fuer {label} (Register {address}) "
+                                   f"ohne Antwort - verbinde neu und wiederhole: {result}")
+                    self.connected = False
+                    if not self.connect():
+                        logger.error(f"Modbus write error for {label} "
+                                     f"(Register {address}): Neuverbindung fehlgeschlagen")
+                        return False
+                else:
+                    logger.error(f"Modbus write error for {label} (Register {address}) "
+                                 f"auch nach Neuverbindung: {result}")
+            return False
 
         except Exception as e:
             logger.error(f"Error writing {label} (Register {address}): {e}")
@@ -321,13 +346,27 @@ class ModbusClient:
         # min_soc=0 wuerde eine tiefere Entladung erlauben als die eigene
         # Einstellung des Nutzers im Kostal-Webinterface.
         power = max_power or self.initial_limits.get('max_charge_power') or 10000.0
+        # Freigegeben wird nur, was wir auch gesetzt haben. Register 1040
+        # ruehren wir nicht an, solange keine Entladegrenze konfiguriert
+        # ist - es beim Beenden zu "befreien" hiesse, den Momentanwert der
+        # Batterie als dauerhafte Grenze einzuschreiben.
+        entladung = self.last_limits.get('max_discharge_power')
         report = self.set_battery_limits(
             max_charge_power=power,
-            max_discharge_power=self.initial_limits.get('max_discharge_power') or power,
+            max_discharge_power=(self.initial_limits.get('max_discharge_power')
+                                 if entladung is not None else None),
             min_soc=self.initial_limits.get('min_soc', 10.0),
             max_soc=self.initial_limits.get('max_soc', 100.0),
             force=True,
         )
+        # Auch das Scheitern melden. Vorher stand hier nur die Liste der
+        # erfolgreichen Writes - eine halb misslungene Freigabe sah im Log
+        # aus wie eine gelungene, und genau der fehlende Eintrag war der
+        # gefaehrliche: eine stehengebliebene Ladegrenze.
+        if report['failed']:
+            logger.error(f"FREIGABE UNVOLLSTAENDIG - diese Grenzen bleiben im "
+                         f"Wechselrichter stehen: {report['failed']}. "
+                         f"Bitte im Kostal-Webinterface pruefen.")
         logger.info(f"Grenzwerte freigegeben (Add-on beendet sich): {report['written']}")
         return report
 

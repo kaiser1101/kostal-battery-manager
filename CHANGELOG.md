@@ -1,5 +1,71 @@
 # Changelog
 
+## [0.18.2] - 2026-09-12
+
+Vier Befunde aus den Betriebsprotokollen vom 11. und 12. September.
+
+### Fixed
+- **Auswertungen sahen immer nur EINEN Tag.** `/api/history/period` liefert
+  ohne `end_time` nicht den Zeitraum bis jetzt, sondern genau 24 Stunden ab
+  `start_time`. Vier Abfragen liessen ihn weg. Die Wirkungskontrolle holte
+  damit den einen Tag vor 30 Tagen, fand dort nichts, versuchte 14, dann 7 -
+  und meldete "ausgewertet wurden 7 Tage", obwohl sie den 5. September
+  auswertete. Daher "1 Tage, 152 Messpunkte" und die Netzbilanz
+  "2026-09-05 bis 2026-09-05".
+
+  Das war auch die Ursache der vermeintlich kurzen Historie. Die Rohdaten
+  reichen mindestens 7 Tage zurueck; sie wurden nur nie angefragt. Die
+  Falle steht jetzt im Docstring von `get_history`, und eine leere Antwort
+  ohne `end_time` sagt es dazu.
+
+- **Die Ladegrenze blieb beim Beenden stehen - zweimal von zwei.** Der
+  Wechselrichter schliesst ungenutzte Verbindungen; unser Socket sieht
+  danach noch offen aus. Der erste Schreibvorgang nach einer Pause laeuft
+  deshalb ins Leere, und erst der naechste bemerkt es. Beim Beenden ist die
+  Verbindung nach dem Regelintervall immer kalt, und Register 1038 wird als
+  erstes geschrieben - die Freigabe der Ladegrenze traf es also immer.
+
+  Zurueck blieb eine auf 500 W gedrosselte Batterie, ohne dass irgendwo
+  ersichtlich gewesen waere, warum. Im Log sah die Freigabe sauber aus,
+  weil dort nur die gelungenen Writes standen.
+
+  Jetzt: ein zweiter Versuch nach erzwungener Neuverbindung, und eine
+  Fehlermeldung, die die stehengebliebenen Grenzen beim Namen nennt.
+
+- **Register 1040 wird nicht mehr geschrieben,** solange keine
+  Entladegrenze konfiguriert ist. Es meldet nicht unseren Sollwert zurueck,
+  sondern was die Batterie gerade hergibt - im Log 4319.5 bis 4319.8 W
+  schwankend gegen 4428.7 W geschrieben. Daraus folgte taeglich 160 bis 180
+  Mal die Warnung "Register-Rueckmeldung weicht ab", die echte Meldungen
+  uebertoente. Schwerer wog die Ratsche: Beim Start las das Add-on den durch
+  das eigene Limit gedeckelten Wert und schrieb IHN als neue Grenze.
+  4428.7 -> 4319.8 ist bereits passiert, zurueck geht es nie. Am Ende
+  koennte die Batterie den Abendverbrauch nicht mehr tragen.
+
+- **Die Stichprobe "Historie pruefen" beschrieb sich falsch.** Sie misst je
+  einen Tag und nicht den ganzen Zeitraum - die Lesehilfe verlangte aber
+  wachsende Zahlen und liess damit einen intakten Recorder defekt aussehen.
+  Sie nennt jetzt, ab welchem Stichtag nichts mehr da ist.
+
+### Added
+- **Die Kalibrierladung ist sichtbar.** Termin, letzter Erfolg und der
+  Grund einer Verschiebung stehen unter "Prognose & Kapazität". Vorher lag
+  das nur in der Zustandsdatei: Man konnte nicht einmal feststellen, ob je
+  eine Vollladung stattgefunden hat.
+
+- **Die Sonnenschwelle weicht mit der Ueberfaelligkeit auf.** Feste 15 kWh
+  sind von Oktober bis Februar hier kaum erreichbar - die Kalibrierung waere
+  lautlos genau im Halbjahr ausgefallen, in dem die SOC-Schaetzung des BMS
+  am staerksten driftet. Die Anforderung sinkt ueber ein weiteres Intervall
+  auf null. Riskant ist das nicht: Der Deckel ist eine Erlaubnis, kein
+  Befehl, und geladen wird nie vom Netz.
+
+- **Kein ewiger Kalibrierversuch.** Bleibt die Vollladung drei Tage
+  hintereinander aus, wird sie als gescheitert vermerkt statt dauerhaft
+  faellig zu bleiben - sonst haetten Deckel 100 % und volle Ladeleistung an
+  jedem sonnigen Tag gegolten, fuer immer, bei voellig normal aussehendem
+  Plan.
+
 ## [0.18.1] - 2026-09-12
 
 ### Fixed

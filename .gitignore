@@ -30,3 +30,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Vom Add-on heruntergeladene Logs - enthalten IP, Hostname und Sensornamen.
+# Das Repo ist ein oeffentlicher Fork, hier darf nichts Persoenliches hin.
+kostal_battery_manager/log/

@@ -302,11 +302,12 @@ try:
             logger.info(f"  1040 Max. Entladeleistung: {limits.get('max_discharge_power')} W")
             logger.info(f"  1042 Minimum SOC         : {limits.get('min_soc')} %")
             logger.info(f"  1044 Maximum SOC         : {limits.get('max_soc')} %")
-            # Entladegrenze des Geraets merken, damit der Planer sie nicht
-            # unnoetig auf max_charge_power herunterzieht.
-            if limits.get('max_discharge_power'):
-                config['_hardware_max_discharge_power'] = limits['max_discharge_power']
-            # Ausgangszustand merken - dorthin wird beim Beenden zurueckgesetzt
+            # Ausgangszustand merken - dorthin wird beim Beenden zurueckgesetzt.
+            # Die Entladegrenze wird bewusst NICHT mehr als Vorgabe
+            # uebernommen: Register 1040 meldet die momentane Faehigkeit der
+            # Batterie zurueck, nicht unseren Sollwert. Sie als Limit
+            # zurueckzuschreiben liess sie bei jedem Neustart ein Stueck
+            # weiter sinken.
             modbus_client.initial_limits = dict(limits)
             logger.info("  -> Limit-Register lesbar, Steuerung sollte funktionieren")
         else:
@@ -861,7 +862,14 @@ def api_effectiveness():
     history = []
     genutzte_tage = days
     for versuch in [d for d in (days, 14, 7, 3, 2) if d <= days]:
-        history = ha_client.get_history(sensor, datetime.now() - timedelta(days=versuch))
+        # end_time MUSS mitgegeben werden. Ohne ihn liefert Home Assistant
+        # nicht den Zeitraum bis jetzt, sondern nur die 24 Stunden ab
+        # start_time. Die Auswertung sah dadurch immer genau einen Tag -
+        # und zwar den am weitesten zurueckliegenden, an dem es ueberhaupt
+        # Daten gab. Daher die Meldungen "1 Tage, 152 Messpunkte" und
+        # "fuer 30 Tage lagen keine Daten vor".
+        jetzt = datetime.now()
+        history = ha_client.get_history(sensor, jetzt - timedelta(days=versuch), jetzt)
         if history:
             genutzte_tage = versuch
             break
@@ -870,7 +878,8 @@ def api_effectiveness():
         # Genauer hinschauen, statt pauschal auf den Recorder zu verweisen:
         # existiert die Entitaet ueberhaupt, und gibt es kuerzere Zeitraeume?
         current = ha_client.get_state(sensor)
-        kurz = ha_client.get_history(sensor, datetime.now() - timedelta(days=2))
+        kurz = ha_client.get_history(sensor, datetime.now() - timedelta(days=2),
+                                     datetime.now())
 
         fehler = getattr(ha_client, 'last_history_error', None)
 
@@ -972,7 +981,8 @@ def _netz_auswertung(tage, live_since):
                             f'Erwartet wird Wh/kWh/MWh bei einem Energiezaehler '
                             f'bzw. W/kW bei einem Leistungssensor.')}
 
-    history = ha_client.get_history(sensor, datetime.now() - timedelta(days=tage))
+    history = ha_client.get_history(sensor, datetime.now() - timedelta(days=tage),
+                                    datetime.now())
     if not history:
         fehler = getattr(ha_client, 'last_history_error', None)
         return {'konfiguriert': True, 'sensor': sensor, 'erfolg': False,
@@ -1046,7 +1056,8 @@ def _netz_auswertung(tage, live_since):
         e_faktor = grid_analysis.einheit_faktor(e_attrs.get('unit_of_measurement'), 'energie')
         if e_faktor is not None:
             e_hist = ha_client.get_history(export_sensor,
-                                           datetime.now() - timedelta(days=tage))
+                                           datetime.now() - timedelta(days=tage),
+                                           datetime.now())
             if e_hist:
                 e_erg = grid_analysis.auswerten(e_hist, 'energie', e_faktor)
                 if e_erg:
@@ -1554,8 +1565,16 @@ def api_history_probe():
             continue
         zeilen = []
         for tage in fenster:
-            history = ha_client.get_history(
-                sensor, datetime.now() - timedelta(days=tage))
+            # Bewusst EIN Tag ab dem Stichtag, nicht der ganze Zeitraum:
+            # Gesucht ist die Grenze, ab der nichts mehr aufgezeichnet ist.
+            # Eine Stichprobe je Tag beantwortet das mit einem Bruchteil
+            # der Datenmenge. Der end_time steht jetzt ausdruecklich da -
+            # vorher ergab er sich aus dem Standardverhalten von Home
+            # Assistant, was niemand der Abfrage ansah und was die
+            # Auswertungen anderswo stillschweigend auf 24 Stunden kuerzte.
+            beginn = datetime.now() - timedelta(days=tage)
+            history = ha_client.get_history(sensor, beginn,
+                                            beginn + timedelta(days=1))
             aeltester = None
             if history:
                 aeltester = (history[0].get('last_changed')
@@ -1598,7 +1617,8 @@ def api_battery_health():
     try:
         return jsonify({'success': True,
                         'prognose': pv_shaping_planner.bias_diagnose(),
-                        'alterung': pv_shaping_planner.alterung_diagnose()})
+                        'alterung': pv_shaping_planner.alterung_diagnose(),
+                        'kalibrierung': pv_shaping_planner.kalibrier_diagnose()})
     except Exception as e:
         logger.error(f"Langzeitkennzahlen fehlgeschlagen: {e}", exc_info=True)
         return jsonify({'success': False, 'reason': str(e)}), 200
@@ -2733,7 +2753,11 @@ def controller_loop():
                                                     ('max_charge_power', plan['max_charge_power']),
                                                     ('max_discharge_power', plan['max_discharge_power'])):
                                     actual = readback.get(key)
-                                    if actual is None:
+                                    # target None = dieses Register schreiben wir
+                                    # gar nicht. Dann gibt es auch nichts zu
+                                    # vergleichen; der gelesene Wert gehoert dem
+                                    # Wechselrichter.
+                                    if actual is None or target is None:
                                         continue
                                     tolerance = 1.0 if 'soc' in key else 50.0
                                     if abs(actual - target) > tolerance:

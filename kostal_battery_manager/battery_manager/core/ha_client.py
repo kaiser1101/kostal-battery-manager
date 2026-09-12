@@ -223,10 +223,19 @@ class HomeAssistantClient:
         """
         Get historical data for an entity (v0.6.0)
 
+        ACHTUNG end_time: Ohne ihn liefert Home Assistant NICHT den Zeitraum
+        bis jetzt, sondern genau 24 Stunden ab start_time. Wer also die
+        letzten 30 Tage auswerten will und nur start_time setzt, bekommt
+        den einen Tag vor 30 Tagen - und haelt das Ergebnis faelschlich fuer
+        den ganzen Zeitraum. Genau das hat die Wirkungskontrolle monatelang
+        "1 Tage, 152 Messpunkte" melden lassen, obwohl die Daten da waren.
+        Fuer eine Zeitspanne immer beide Zeitpunkte angeben.
+
         Args:
             entity_id: Entity ID (e.g., 'sensor.ksem_home_consumption')
             start_time: Start datetime (ISO format or datetime object)
-            end_time: End datetime (ISO format or datetime object), optional (defaults to now)
+            end_time: End datetime - WEGLASSEN heisst 24 Stunden ab start_time,
+                      nicht "bis jetzt"
 
         Returns:
             list: List of state changes, each with 'state', 'last_changed', etc.
@@ -271,8 +280,11 @@ class HomeAssistantClient:
                     logger.info(f"Retrieved {len(history)} history entries for {entity_id}")
                     return history
                 else:
-                    self.last_history_error = (f'HTTP 200, aber leere Antwort - HA kennt fuer '
-                                               f'diesen Zeitraum keine aufgezeichneten Werte')
+                    self.last_history_error = (
+                        f'HTTP 200, aber leere Antwort - HA kennt fuer diesen '
+                        f'Zeitraum keine aufgezeichneten Werte'
+                        + ('' if end_time else ' (Abfrage ohne end_time deckt nur '
+                                               '24 Stunden ab start_time ab)'))
                     logger.warning(f"No history data found for {entity_id}")
                     return []
             else:

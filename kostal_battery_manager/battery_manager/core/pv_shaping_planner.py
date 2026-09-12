@@ -595,35 +595,102 @@ class PVShapingPlanner:
     def is_calibration_due(self, ha_client, config, now: datetime) -> bool:
         """
         LFP-Zellen brauchen periodisch eine Vollladung, damit das BMS
-        seine SOC-Schaetzung neu kalibrieren kann. Wir tun das nur an
-        Tagen mit viel PV - dann kostet es keinen Netzstrom.
+        seine SOC-Schaetzung neu kalibrieren kann. Bevorzugt an Tagen mit
+        viel Sonne - dann steht die Batterie nicht tagelang oben herum.
+
+        Schreibt nebenbei self._kalibrier_status, damit im Dashboard
+        ablesbar ist, wann zuletzt kalibriert wurde und worauf gerade
+        gewartet wird. Vorher stand das nur in der Zustandsdatei und war
+        von aussen nicht zu sehen - man konnte nicht einmal feststellen,
+        ob je eine Kalibrierung stattgefunden hat.
         """
+        status = {'intervall_tage': self.calibration_interval_days,
+                  'letzte': self._state.get('last_calibration_date'),
+                  'tage_seither': None, 'faellig': False,
+                  'schwelle_kwh': self.calibration_min_pv_kwh,
+                  'pv_prognose_kwh': None, 'grund': ''}
+        self._kalibrier_status = status
+
         if self.calibration_interval_days <= 0:
+            status['grund'] = 'Kalibrierladung ist abgeschaltet (Intervall 0).'
             return False
 
+        days_since = None
         last = self._state.get('last_calibration_date')
         if last:
             try:
                 last_date = datetime.fromisoformat(last).date()
                 days_since = (now.date() - last_date).days
+                status['tage_seither'] = days_since
                 if days_since < self.calibration_interval_days:
+                    rest = self.calibration_interval_days - days_since
+                    status['grund'] = (f'Naechste Kalibrierladung in {rest} Tagen '
+                                       f'(Intervall {self.calibration_interval_days} Tage).')
                     return False
             except ValueError:
                 pass
 
+        status['faellig'] = True
+
+        # Die Sonnenschwelle mit der Ueberfaelligkeit aufweichen.
+        #
+        # Eine feste Schwelle von 15 kWh ist von Oktober bis Februar in
+        # unseren Breiten oft unerreichbar - die Kalibrierung waere dann
+        # genau im halben Jahr ausgefallen, in dem die SOC-Schaetzung des
+        # BMS am staerksten driftet. Und zwar lautlos.
+        #
+        # Riskant ist das Aufweichen nicht: Der Deckel ist eine Erlaubnis,
+        # kein Befehl. Es wird nie vom Netz geladen, nur die Grenze
+        # angehoben. Bringt der Tag die Sonne nicht, bleibt der Speicher
+        # eben unten - es kostet nichts.
+        schwelle = self.calibration_min_pv_kwh
+        if days_since is not None and self.calibration_interval_days > 0:
+            ueberfaellig = max(0, days_since - self.calibration_interval_days)
+            anteil = max(0.0, 1.0 - ueberfaellig / float(self.calibration_interval_days))
+            schwelle = self.calibration_min_pv_kwh * anteil
+        status['schwelle_kwh'] = round(schwelle, 1)
+
         pv_today = self.get_hourly_pv_forecast(ha_client, config)
         pv_kwh = sum(pv_today.values()) if pv_today else 0.0
-        if pv_kwh < self.calibration_min_pv_kwh:
-            logger.debug(f"Kalibrierung faellig, aber PV-Prognose zu niedrig "
-                         f"({pv_kwh:.1f} < {self.calibration_min_pv_kwh} kWh) - warte auf besseren Tag")
+        status['pv_prognose_kwh'] = round(pv_kwh, 1)
+
+        if pv_kwh < schwelle:
+            status['grund'] = (f'Faellig seit {days_since} Tagen, aber die Sonne reicht '
+                               f'heute nicht ({pv_kwh:.1f} statt {schwelle:.1f} kWh). '
+                               f'Die Anforderung sinkt mit jedem Tag Wartezeit.')
+            logger.info(f"Kalibrierung faellig, PV-Prognose heute zu niedrig "
+                        f"({pv_kwh:.1f} < {schwelle:.1f} kWh) - warte auf besseren Tag")
             return False
 
+        status['grund'] = (f'Faellig - heute wird auf 100 % freigegeben '
+                           f'(PV-Prognose {pv_kwh:.1f} kWh).')
         return True
 
-    def mark_calibration_done(self, now: datetime):
+    def mark_calibration_done(self, now: datetime, erreicht: bool = True):
         self._state['last_calibration_date'] = now.date().isoformat()
+        self._state['last_calibration_reached'] = bool(erreicht)
+        self._state.pop('calibration_started', None)
         self._save_state()
-        logger.info("Kalibrierladung abgeschlossen und vermerkt")
+        if erreicht:
+            logger.info("Kalibrierladung abgeschlossen (100 % erreicht) und vermerkt")
+        else:
+            logger.warning("Kalibrierladung abgebrochen - 100 % wurden an mehreren "
+                           "Tagen nicht erreicht. Naechster Versuch nach dem Intervall. "
+                           "Wenn das wiederholt passiert, erreicht die Anlage die "
+                           "Vollladung nicht mehr - das waere ein Hinweis auf die "
+                           "Batterie oder auf einen zu knappen Herbsttag.")
+
+    def kalibrier_diagnose(self) -> Dict:
+        """Was das Dashboard ueber die Kalibrierladung anzeigt."""
+        status = dict(getattr(self, '_kalibrier_status', None) or {})
+        status.setdefault('intervall_tage', self.calibration_interval_days)
+        status.setdefault('letzte', self._state.get('last_calibration_date'))
+        status['zuletzt_erreicht'] = self._state.get('last_calibration_reached')
+        status['laeuft_seit'] = self._state.get('calibration_started')
+        if not status.get('grund'):
+            status['grund'] = ('Noch nicht geprueft - die Auskunft entsteht beim '
+                               'naechsten Regelzyklus.')
+        return status
 
     # ------------------------------------------------------------------
     # Hauptberechnung
@@ -673,6 +740,10 @@ class PVShapingPlanner:
     # wochenlang stehen, und niemand wuesste, warum der Speicher taeglich
     # voll ist.
     MANUELL_MIN_ABSTAND = 5.0   # Prozentpunkte zwischen Unter- und Obergrenze
+
+    # Wie viele Tage am Stueck die Kalibrierladung hoechstens versucht wird,
+    # bevor sie als gescheitert vermerkt wird statt ewig offen zu bleiben.
+    KALIBRIER_MAX_VERSUCHSTAGE = 3
 
     def setze_manuelle_grenzen(self, max_soc=None, min_soc=None,
                                now: Optional[datetime] = None) -> Dict:
@@ -800,7 +871,10 @@ class PVShapingPlanner:
             return {}
         try:
             midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-            history = ha_client.get_history(sensor, midnight)
+            # end_time ausdruecklich: ohne ihn liefert HA nur 24 Stunden ab
+            # start_time. Hier faellt das nicht auf, weil Mitternacht bis
+            # jetzt nie laenger ist - aber niemand soll sich darauf verlassen.
+            history = ha_client.get_history(sensor, midnight, now)
         except Exception as e:
             logger.debug(f"SOC-Historie fuer die Projektion nicht verfuegbar: {e}")
             return {}
@@ -1243,13 +1317,24 @@ class PVShapingPlanner:
         now = now or datetime.now().astimezone()
         configured_max_power = float(config.get('max_charge_power', 3900))
 
-        # Die Entladegrenze hat mit der Ladeleistung nichts zu tun. Wird sie
-        # nicht ausdruecklich konfiguriert, uebernehmen wir das Limit des
-        # Wechselrichters (Register 1040, beim Start gelesen) - sonst wuerden
-        # wir seine Entladeleistung ohne Grund beschneiden.
-        discharge_limit = (float(config.get('max_discharge_power') or 0)
-                           or float(config.get('_hardware_max_discharge_power') or 0)
-                           or configured_max_power)
+        # Die Entladegrenze hat mit der Ladeleistung nichts zu tun. Ist
+        # keine konfiguriert, fassen wir Register 1040 GAR NICHT an - None
+        # heisst hier "nicht schreiben".
+        #
+        # Vorher wurde der beim Start gelesene Geraetewert zurueckgeschrieben.
+        # Das sah harmlos aus, war es aber nicht: Register 1040 meldet nicht
+        # unseren Sollwert zurueck, sondern was die Batterie gerade hergibt
+        # (im Log 4319.5 bis 4319.8 W schwankend, geschrieben 4428.7 W).
+        # Daraus folgte zweierlei. Erstens 160 bis 180 Fehlwarnungen taeglich
+        # ueber eine Abweichung, die keine ist - sie uebertoenten echte
+        # Meldungen. Zweitens eine Ratsche nach unten: Beim naechsten Start
+        # las das Add-on den durch das eigene Limit gedeckelten Wert und
+        # schrieb IHN als neue Grenze. 4428.7 -> 4319.8 ist bereits passiert.
+        # Zurueck geht es nie, denn das Limit deckelt die Messung. Am Ende
+        # koennte die Batterie den Abendverbrauch nicht mehr tragen und das
+        # Haus zoege Netzstrom - das Gegenteil des Ziels.
+        konfigurierte_entladung = float(config.get('max_discharge_power') or 0)
+        discharge_limit = konfigurierte_entladung if konfigurierte_entladung > 0 else None
 
         plan = {
             'timestamp': now.isoformat(),
@@ -1296,8 +1381,29 @@ class PVShapingPlanner:
                            f'und PV-Prognose ausreichend - Ladung auf 100% freigegeben'),
             })
             if current_soc >= 99.0:
-                self.mark_calibration_done(now)
+                self.mark_calibration_done(now, erreicht=True)
                 plan['reason'] += ' | 100% erreicht, Kalibrierung vermerkt'
+                return plan
+
+            # Nicht endlos versuchen. Erreicht die Anlage die 100 % nicht -
+            # weil das BMS bei 98 % abriegelt oder der Herbst zu duenn ist -
+            # bliebe die Kalibrierung sonst dauerhaft faellig: Deckel 100 %
+            # und volle Ladeleistung an JEDEM sonnigen Tag, fuer immer. Das
+            # waere das genaue Gegenteil der Schonung, und niemand wuerde es
+            # bemerken, weil der Plan dabei voellig normal aussieht.
+            begonnen = self._state.get('calibration_started')
+            if not begonnen:
+                self._state['calibration_started'] = now.date().isoformat()
+                self._save_state()
+            else:
+                try:
+                    seit = (now.date() - datetime.fromisoformat(begonnen).date()).days
+                except ValueError:
+                    seit = 0
+                if seit >= self.KALIBRIER_MAX_VERSUCHSTAGE:
+                    self.mark_calibration_done(now, erreicht=False)
+                    plan['reason'] += (f' | nach {seit} Tagen ohne 100% abgebrochen, '
+                                       f'naechster Versuch nach dem Intervall')
             return plan
 
         # --- 3. Dynamischer SOC-Deckel --------------------------------

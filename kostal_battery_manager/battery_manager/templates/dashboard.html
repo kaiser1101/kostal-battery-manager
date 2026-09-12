@@ -603,23 +603,51 @@ function loadHistoryProbe() {
             let t = 'WIE WEIT REICHT DIE HISTORIE ZURUECK\n' + '='.repeat(58) + '\n\n';
             (d.sensoren || []).forEach(s => {
                 t += `${s.name}\n   ${s.sensor}\n`;
-                t += '   Fenster   Eintraege   aeltester Eintrag\n';
+                t += '   Stichtag   Eintraege an diesem Tag   Zeitstempel\n';
+                let letzterMitDaten = null;
                 s.fenster.forEach(f => {
-                    t += `   ${String(f.tage).padStart(3)} Tage`
-                       + `${String(f.eintraege).padStart(10)}`
-                       + `   ${f.aeltester || '-'}\n`;
+                    if (f.eintraege > 0) letzterMitDaten = f.tage;
+                    t += `   vor ${String(f.tage).padStart(2)} Tagen`
+                       + `${String(f.eintraege).padStart(12)}`
+                       + `   ${f.aeltester || '-'}${f.eintraege ? '' : '   nichts mehr da'}\n`;
                 });
-                t += '\n';
+                t += letzterMitDaten !== null
+                     ? `   -> Rohdaten reichen mindestens ${letzterMitDaten} Tage zurueck.\n\n`
+                     : '   -> Fuer keinen der Stichtage liegen Rohdaten vor.\n\n';
             });
-            t += 'Lesehilfe: Steigt die Zahl mit dem Fenster und wandert der\n'
-               + 'aelteste Eintrag zurueck, ist alles in Ordnung. Bricht sie ab\n'
-               + 'einem Fenster auf 0 ein, liefert Home Assistant fuer diesen\n'
-               + 'Zeitraum nichts - dann liegen die Rohzustaende nicht mehr vor.\n'
-               + 'Der Verlaufs-Graph zeigt dann die Langzeitstatistik, die nie\n'
-               + 'geloescht wird - eine andere Quelle als die hier gelesene.';
+            t += 'Lesehilfe: Jede Zeile ist eine Stichprobe von EINEM Tag, nicht\n'
+               + 'die Summe des Zeitraums. Die Zahlen sind deshalb alle aehnlich\n'
+               + 'gross - das ist richtig so. Entscheidend ist allein, ab welchem\n'
+               + 'Stichtag 0 steht: Dort endet die Aufzeichnung der Rohzustaende.\n'
+               + 'Der Verlaufs-Graph in HA reicht weiter zurueck, weil er die\n'
+               + 'Langzeitstatistik zeigt - eine andere Quelle als die hier gelesene.';
             out.textContent = t;
         })
         .catch(e => { out.textContent = 'Fehler: ' + e; });
+}
+
+// v0.18.2 - Kalibrierladung als Textblock. Vorher stand der Termin nur in
+// der Zustandsdatei: Man konnte nicht einmal feststellen, OB je eine
+// Vollladung stattgefunden hat.
+function fmtKalibrierung(k) {
+    if (!k) return '';
+    let t = 'KALIBRIERLADUNG (Vollladung fuers BMS)\n' + '-'.repeat(58) + '\n';
+    if (!k.intervall_tage) {
+        return t + '   Abgeschaltet (Intervall 0).\n\n';
+    }
+    t += `   Intervall            alle ${k.intervall_tage} Tage\n`;
+    t += `   zuletzt              ${k.letzte || 'noch nie'}`;
+    if (k.zuletzt_erreicht === false) t += '   (100 % nicht erreicht)';
+    else if (k.zuletzt_erreicht === true) t += '   (100 % erreicht)';
+    t += '\n';
+    if (k.tage_seither !== null && k.tage_seither !== undefined)
+        t += `   das ist her         ${k.tage_seither} Tage\n`;
+    if (k.pv_prognose_kwh !== null && k.pv_prognose_kwh !== undefined)
+        t += `   Sonne heute          ${k.pv_prognose_kwh} kWh `
+           + `(noetig ${k.schwelle_kwh} kWh)\n`;
+    if (k.laeuft_seit) t += `   Versuch laeuft seit  ${k.laeuft_seit}\n`;
+    t += `\n   ${k.grund}\n\n`;
+    return t;
 }
 
 // v0.17.1 - Entscheidungsprotokoll. Braucht einen eigenen Knopf, weil
@@ -675,7 +703,8 @@ function loadBatteryHealth() {
         .then(r => r.json())
         .then(d => {
             if (!d.success) { out.textContent = d.reason || 'Fehlgeschlagen'; return; }
-            let t = 'PV-PROGNOSE AN DEINEM STANDORT\n' + '='.repeat(52) + '\n';
+            let t = fmtKalibrierung(d.kalibrierung)
+                  + 'PV-PROGNOSE AN DEINEM STANDORT\n' + '='.repeat(52) + '\n';
             const p = d.prognose;
             if (!p.aktiv) {
                 t += `   Noch ${p.mindesttage - p.tage} Tage bis zur ersten Korrektur\n`
