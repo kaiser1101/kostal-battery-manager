@@ -900,8 +900,23 @@ function updateShapingCard(data) {
         `${plan.min_soc}% – ${plan.max_soc}%`;
     document.getElementById('shaping-charge').textContent =
         `${Math.round(plan.max_charge_power)} W`;
-    document.getElementById('shaping-discharge').textContent =
-        `${Math.round(plan.max_discharge_power)} W`;
+    // null heisst: Register 1040 wird NICHT geschrieben, die Batterie darf
+    // so schnell entladen, wie der Wechselrichter kann. Math.round(null)
+    // ergibt 0 - und "0 W" las sich wie eine blockierte Entladung, genau
+    // das Gegenteil. Deshalb hier Klartext statt einer Zahl.
+    const entladeFeld = document.getElementById('shaping-discharge');
+    if (plan.max_discharge_power == null) {
+        entladeFeld.textContent = 'nicht begrenzt';
+        entladeFeld.style.fontSize = '1.05rem';
+        entladeFeld.style.fontWeight = 'normal';
+        entladeFeld.title = 'Das Add-on schreibt keine Entladegrenze. '
+                          + 'Spitzen federt die Batterie mit voller Leistung ab.';
+    } else {
+        entladeFeld.textContent = `${Math.round(plan.max_discharge_power)} W`;
+        entladeFeld.style.fontSize = '1.4rem';
+        entladeFeld.style.fontWeight = 'bold';
+        entladeFeld.title = '';
+    }
 
     const diag = plan.diagnostics || {};
     document.getElementById('shaping-overnight').textContent =

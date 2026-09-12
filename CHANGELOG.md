@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.19.1] - 2026-09-12
+
+### Fixed
+- **"Max. Entladeleistung 0 W" las sich wie eine blockierte Batterie.**
+  Seit 0.18.2 schreibt das Add-on Register 1040 nicht mehr, wenn keine
+  Entladegrenze konfiguriert ist - der Wert im Plan ist dann `null`, und
+  `Math.round(null)` ergibt 0. Angezeigt wurde also "0 W", wo "wir
+  begrenzen nicht" gemeint war. Die Rueckmeldezeile darunter sagte im
+  selben Moment "Entladen 4320 W" und widersprach sich damit selbst.
+
+  Steht jetzt als "nicht begrenzt" da. Entladen wurde nie gebremst:
+  Lastspitzen federt die Batterie unveraendert mit voller Leistung ab.
+
 ## [0.19.0] - 2026-09-12
 
 ### Added
