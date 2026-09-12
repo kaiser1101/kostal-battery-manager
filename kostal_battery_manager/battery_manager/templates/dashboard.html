@@ -902,20 +902,29 @@ function updateShapingCard(data) {
         `${Math.round(plan.max_charge_power)} W`;
     // null heisst: Register 1040 wird NICHT geschrieben, die Batterie darf
     // so schnell entladen, wie der Wechselrichter kann. Math.round(null)
-    // ergibt 0 - und "0 W" las sich wie eine blockierte Entladung, genau
-    // das Gegenteil. Deshalb hier Klartext statt einer Zahl.
+    // ergibt 0 - und "0 W" las sich wie eine blockierte Entladung, also
+    // genau das Gegenteil. Steht keine eigene Grenze an, zeigen wir daher
+    // den Wert, der tatsaechlich gilt: den aus dem Register gelesenen.
     const entladeFeld = document.getElementById('shaping-discharge');
-    if (plan.max_discharge_power == null) {
+    const geraeteEntladung = (data.limits_readback || {}).max_discharge_power;
+    entladeFeld.style.fontWeight = 'bold';
+    if (plan.max_discharge_power != null) {
+        entladeFeld.textContent = `${Math.round(plan.max_discharge_power)} W`;
+        entladeFeld.style.fontSize = '1.4rem';
+        entladeFeld.title = 'Vom Add-on gesetzte Entladegrenze.';
+    } else if (geraeteEntladung != null) {
+        entladeFeld.textContent = `${Math.round(geraeteEntladung)} W`;
+        entladeFeld.style.fontSize = '1.4rem';
+        entladeFeld.title = 'Grenze des Wechselrichters - das Add-on begrenzt die '
+                          + 'Entladung nicht. Lastspitzen federt die Batterie mit '
+                          + 'voller Leistung ab.';
+    } else {
+        // Noch keine Rueckmeldung gelesen - dann lieber Klartext als eine
+        // erfundene Zahl.
         entladeFeld.textContent = 'nicht begrenzt';
         entladeFeld.style.fontSize = '1.05rem';
         entladeFeld.style.fontWeight = 'normal';
-        entladeFeld.title = 'Das Add-on schreibt keine Entladegrenze. '
-                          + 'Spitzen federt die Batterie mit voller Leistung ab.';
-    } else {
-        entladeFeld.textContent = `${Math.round(plan.max_discharge_power)} W`;
-        entladeFeld.style.fontSize = '1.4rem';
-        entladeFeld.style.fontWeight = 'bold';
-        entladeFeld.title = '';
+        entladeFeld.title = 'Das Add-on schreibt keine Entladegrenze.';
     }
 
     const diag = plan.diagnostics || {};

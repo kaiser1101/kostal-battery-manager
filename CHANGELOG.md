@@ -10,8 +10,11 @@
   begrenzen nicht" gemeint war. Die Rueckmeldezeile darunter sagte im
   selben Moment "Entladen 4320 W" und widersprach sich damit selbst.
 
-  Steht jetzt als "nicht begrenzt" da. Entladen wurde nie gebremst:
-  Lastspitzen federt die Batterie unveraendert mit voller Leistung ab.
+  Angezeigt wird jetzt der Wert, der tatsaechlich gilt: die aus Register
+  1040 zurueckgelesene Grenze des Wechselrichters (hier 4320 W). Nur wenn
+  noch keine Rueckmeldung vorliegt, steht "nicht begrenzt" dort - eine Zahl
+  zu erfinden waere schlechter. Entladen wurde nie gebremst: Lastspitzen
+  federt die Batterie unveraendert mit voller Leistung ab.
 
 ## [0.19.0] - 2026-09-12
 
