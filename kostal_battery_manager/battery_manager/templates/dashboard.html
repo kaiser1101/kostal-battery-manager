@@ -1238,20 +1238,34 @@ const overviewMarkerPlugin = {
         // Bereich sich der Ladestand ueberhaupt bewegen darf.
         const ys = scales['y-soc'];
         if (ys && window._ovCorridor) {
-            const {min, max} = window._ovCorridor;
-            const oben = ys.getPixelForValue(max), unten = ys.getPixelForValue(min);
-            ctx.fillStyle = 'rgba(91, 141, 239, 0.07)';
-            ctx.fillRect(area.left, oben, area.right - area.left, unten - oben);
-            ctx.strokeStyle = 'rgba(91, 141, 239, 0.35)';
-            ctx.setLineDash([3, 3]);
-            ctx.lineWidth = 1;
-            [oben, unten].forEach(y => {
-                ctx.beginPath();
-                ctx.moveTo(area.left, y);
-                ctx.lineTo(area.right, y);
-                ctx.stroke();
+            // Heute und morgen getrennt zeichnen: Ein manueller Eingriff
+            // gilt nur bis Mitternacht, danach gelten wieder die
+            // gerechneten Grenzen. Ein durchgehendes Band wuerde einen
+            // Korridor zeigen, den es morgen gar nicht gibt.
+            const k = window._ovCorridor;
+            const mitte = xAt(23.5);   // dieselbe Grenze wie die Tagestrennlinie
+            const abschnitte = [
+                {min: k.min, max: k.max, x1: area.left, x2: Math.min(mitte, area.right)},
+                {min: k.minMorgen, max: k.maxMorgen,
+                 x1: Math.max(mitte, area.left), x2: area.right}
+            ];
+            abschnitte.forEach(a => {
+                if (a.x2 <= a.x1) return;
+                const oben = ys.getPixelForValue(a.max);
+                const unten = ys.getPixelForValue(a.min);
+                ctx.fillStyle = 'rgba(91, 141, 239, 0.07)';
+                ctx.fillRect(a.x1, oben, a.x2 - a.x1, unten - oben);
+                ctx.strokeStyle = 'rgba(91, 141, 239, 0.35)';
+                ctx.setLineDash([3, 3]);
+                ctx.lineWidth = 1;
+                [oben, unten].forEach(y => {
+                    ctx.beginPath();
+                    ctx.moveTo(a.x1, y);
+                    ctx.lineTo(a.x2, y);
+                    ctx.stroke();
+                });
+                ctx.setLineDash([]);
             });
-            ctx.setLineDash([]);
         }
 
         // Jetzt-Linie
@@ -1608,7 +1622,11 @@ function updateOverviewChart() {
 
             // Von Strichelung und Markierungen gebraucht
             window._ovNow = data.jetzt_index;
-            window._ovCorridor = {min: data.corridor_min, max: data.corridor_max};
+            window._ovCorridor = {
+                min: data.corridor_min, max: data.corridor_max,
+                minMorgen: data.corridor_min_morgen ?? data.corridor_min,
+                maxMorgen: data.corridor_max_morgen ?? data.corridor_max
+            };
 
             const labels = [];
             for (let i = 0; i < 48; i++) labels.push(String(i % 24).padStart(2, '0'));
@@ -1662,6 +1680,7 @@ function updateOverviewChart() {
                   + `<b>Morgen</b> ☀ ${data.pv_morgen_kwh} · Verbrauch ${data.verbrauch_morgen_kwh}`
                   + ` · Batterie +${data.geladen_morgen_kwh} kWh<br>`
                   + `Korridor ${data.corridor_min}\u2013${data.corridor_max} %`
+                  + (data.manuell_aktiv ? ' (heute von Hand gesetzt)' : '')
                   + ` · Ladegrenze heute ${data.max_charge_kw} kW`
                   + ` · durchgezogen = gemessen, gestrichelt = Prognose<br>`
                   + `<span style="opacity:.75">${data.begruendung || ''}</span><br>`

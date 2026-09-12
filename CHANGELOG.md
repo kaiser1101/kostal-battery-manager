@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.18.1] - 2026-09-12
+
+### Fixed
+- **Die Projektion folgte dem manuellen Eingriff nur halb.** Ladeleistung
+  und Deckel fuer HEUTE kamen schon aus dem Plan und stimmten damit. Fuer
+  MORGEN zeigte das Diagramm aber denselben angehobenen Deckel - obwohl
+  der Eingriff um Mitternacht ablaeuft. Es haette also einen Speicher
+  angekuendigt, der morgen auf 95 % laeuft, wo in Wahrheit wieder die
+  Rechnung gilt.
+
+  Korridor und Grenzen werden jetzt je Tag getrennt gefuehrt. Das Band im
+  Diagramm wird links und rechts der Tagestrennlinie mit den jeweils
+  gueltigen Werten gezeichnet, und die Fusszeile vermerkt "heute von Hand
+  gesetzt".
+
+  Nachgerechnet mit angehobenem Deckel auf 95 %: SOC-Spitze heute 86 %,
+  morgen wieder 72 % - vorher haette dort ebenfalls 86 % gestanden.
+
 ## [0.18.0] - 2026-09-12
 
 ### Added

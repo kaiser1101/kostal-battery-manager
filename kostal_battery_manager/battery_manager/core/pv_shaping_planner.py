@@ -1093,8 +1093,21 @@ class PVShapingPlanner:
             1: self.get_hourly_pv_forecast(ha_client, config, for_date=morgen) or {},
         }
 
-        max_soc = plan['max_soc']
-        min_soc = plan['min_soc']
+        # Grenzen je Tag. Ein manueller Eingriff gilt nur bis Mitternacht -
+        # fuer morgen daher wieder die gerechneten Werte. Sonst zeigt das
+        # Diagramm einen Speicher, der morgen auf 90 % laeuft, obwohl der
+        # Eingriff um Mitternacht ablaeuft.
+        manuell = self.manuelle_grenzen(now)
+        diagnose = plan.get('diagnostics') or {}
+        max_soc_tag = {0: plan['max_soc'], 1: plan['max_soc']}
+        min_soc_tag = {0: plan['min_soc'], 1: plan['min_soc']}
+        if manuell:
+            if manuell.get('max_soc') is not None:
+                max_soc_tag[1] = float(diagnose.get('soc_deckel_roh',
+                                                    self.soc_corridor_max))
+            if manuell.get('min_soc') is not None:
+                min_soc_tag[1] = float(self.soc_corridor_min)
+
         jetzt = now.hour
 
         # Die Drosselgrenze gilt nur fuer HEUTE. Sie wird aus dem aktuellen
@@ -1166,11 +1179,11 @@ class PVShapingPlanner:
             bilanz = pv_h - use
 
             if bilanz > 0:
-                platz = max(0.0, (max_soc - soc) / 100 * battery_capacity)
+                platz = max(0.0, (max_soc_tag[tag] - soc) / 100 * battery_capacity)
                 fluss = min(bilanz, max_charge_kwh_tag[tag], platz)
                 soc += fluss / battery_capacity * 100
             else:
-                verfuegbar = max(0.0, (soc - min_soc) / 100 * battery_capacity)
+                verfuegbar = max(0.0, (soc - min_soc_tag[tag]) / 100 * battery_capacity)
                 fluss = -min(-bilanz, verfuegbar)
                 soc += fluss / battery_capacity * 100
 
@@ -1193,8 +1206,11 @@ class PVShapingPlanner:
             'verbrauch': verbrauch,
             'soc': soc_reihe,
             'batterie': batterie,
-            'corridor_min': min_soc,
-            'corridor_max': max_soc,
+            'corridor_min': min_soc_tag[0],
+            'corridor_max': max_soc_tag[0],
+            'corridor_min_morgen': min_soc_tag[1],
+            'corridor_max_morgen': max_soc_tag[1],
+            'manuell_aktiv': bool(manuell),
             'max_charge_kw': round(max_charge_kwh_tag[0], 2),
             'pv_heute_kwh': round(sum(pv_tage[0].values()), 1),
             'pv_ist_heute_kwh': round(sum(v for v in pv_ist if v), 2),
