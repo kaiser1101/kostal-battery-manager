@@ -2499,6 +2499,21 @@ def get_consumption_kwh(ha_client, consumption_sensor, timestamp):
         return None
 
 
+# Die Freigabe darf nur EINMAL laufen.
+#
+# Beim Beenden kommt sie bis zu dreimal an: SIGTERM erreicht den Worker
+# zweimal - von s6 und ein zweites Mal von gunicorns Master, der es
+# weiterreicht - und atexit ruft sie danach noch einmal auf. Das zweite
+# Signal unterbrach am 12.09. die noch laufende erste Freigabe mitten im
+# Modbus-Schreiben: Die innere baute die Verbindung neu auf, die aeussere
+# schrieb danach ins Leere ("'NoneType' object has no attribute 'recv'")
+# und meldete eine unvollstaendige Freigabe. Diesmal gewann zufaellig die
+# letzte, erfolgreiche. In umgekehrter Reihenfolge bliebe genau die
+# Ladegrenze stehen.
+_freigabe_sperre = threading.Lock()
+_freigabe_erledigt = False
+
+
 def release_limits_on_shutdown():
     """
     Beim Beenden die Grenzen freigeben.
@@ -2507,18 +2522,35 @@ def release_limits_on_shutdown():
     koennte ein gedrosseltes Ladelimit oder ein enger SOC-Korridor
     unbemerkt bestehen bleiben.
     """
+    global _freigabe_erledigt
     if not modbus_client or modbus_client.dry_run:
         return
     if config.get('charging_strategy', 'forecast') != 'forecast':
         return
+
+    # Nicht blockierend warten: Das zweite Signal laeuft im SELBEN Thread
+    # wie die unterbrochene erste Freigabe. Wuerde es auf die Sperre
+    # warten, stuende der Worker fuer immer. Es tritt stattdessen zurueck.
+    if not _freigabe_sperre.acquire(blocking=False):
+        logger.info("Freigabe laeuft bereits - weiterer Aufruf uebersprungen")
+        return
     try:
+        if _freigabe_erledigt:
+            return
         # Ohne max_power: dann greifen die beim Start vorgefundenen Werte.
         # Vorher wurde hier max_charge_power aus der Konfiguration
         # uebergeben - das ueberschrieb den Geraetewert und liess nach dem
         # Beenden eine Begrenzung stehen, die niemand gesetzt hatte.
-        modbus_client.release_limits()
+        report = modbus_client.release_limits()
+        # Nur bei vollstaendigem Erfolg abhaken. Ist ein Register
+        # gescheitert, darf der naechste Aufruf (atexit) es noch einmal
+        # versuchen - dafuer ist die Mehrfachanlieferung sogar gut.
+        if report is not None and not report.get('failed'):
+            _freigabe_erledigt = True
     except Exception as e:
         logger.error(f"Konnte Grenzwerte beim Beenden nicht freigeben: {e}")
+    finally:
+        _freigabe_sperre.release()
 
 
 def publish_plan_to_ha(plan, readback=None):

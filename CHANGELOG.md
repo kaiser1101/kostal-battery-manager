@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.20.1] - 2026-09-13
+
+### Fixed
+- **Die Freigabe beim Beenden lief bis zu dreimal und konnte sich selbst
+  sabotieren.** SIGTERM erreicht den gunicorn-Worker zweimal - von s6 und
+  ein zweites Mal vom Master, der es weiterreicht -, und `atexit` ruft die
+  Freigabe danach noch einmal auf. Im Log vom 12.09. um 14:33 unterbrach das
+  zweite Signal die noch laufende erste Freigabe mitten im Schreiben von
+  Register 1038. Die innere Freigabe baute die Verbindung neu auf, die
+  aeussere schrieb danach ins Leere (`'NoneType' object has no attribute
+  'recv'`) und meldete "FREIGABE UNVOLLSTAENDIG". Diesmal gewann zufaellig
+  die dritte, erfolgreiche. In anderer Reihenfolge waere genau die
+  Ladegrenze stehen geblieben.
+
+  Jetzt schuetzt eine Sperre die Freigabe: Ein zweiter Aufruf waehrend der
+  laufenden tritt zurueck, statt dazwischenzuschreiben - nicht blockierend,
+  weil er im selben Thread laeuft und sonst den Worker festhielte. Abgehakt
+  wird nur eine vollstaendig gelungene Freigabe; scheitert ein Register,
+  versucht `atexit` es noch einmal.
+
 ## [0.20.0] - 2026-09-13
 
 ### Fixed
