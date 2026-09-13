@@ -1,5 +1,5 @@
 name: Kostal Battery Manager edited by Phil
-version: "0.19.2"
+version: "0.20.0"
 slug: kostal_battery_manager
 description: "description: Intelligente Batteriesteuerung für Kostal Plenticore Plus mit PV-Prognose, Verbrauchslernen, intelligenter SOC-Optimierung und bedarfsgerechter Batterieladung"
 url: "https://github.com/kaiser1101/kostal-battery-manager.git"
@@ -102,11 +102,12 @@ options:
   # Wie tief die Batterie NACHTS gehen darf, um Netzbezug zu vermeiden.
   # Gesenkt wird nur so weit, wie der Restbedarf bis Sonnenaufgang es
   # verlangt - reicht soc_corridor_min, bleibt es dabei. 0 = abgeschaltet.
-  # ACHTUNG: soc_hard_safety_min bleibt die aeussere Grenze. Steht sie auf
-  # 15, wird ein Nachtboden von 10 nicht tiefer als 15 wirksam - wer wirklich
-  # bis 10 % gehen will, muss auch die Notbremse senken.
-  soc_night_floor: 10
-  soc_hard_safety_min: 15  # Harte Notbremse, unabhaengig vom Abend-Check (%)
+  # soc_hard_safety_min bleibt die aeussere Grenze: Der hoehere der beiden
+  # Werte wird nie unterschritten - beide gemeinsam einstellen.
+  soc_night_floor: 5
+  # Harte Notbremse (%). Darunter wird nicht mehr entladen. Nachgeladen
+  # wird deshalb aber nie: Die Untergrenze liegt nie ueber dem Ladestand.
+  soc_hard_safety_min: 5
   pv_forecast_safety_margin: 0.8  # Anteil der PV-Prognose, dem vertraut wird
   pv_dropoff_threshold: 0.05  # Trigger: PV unter X des Tagesmaximums
   escalation_days: 2  # Nach X Tagen Korridor-Unterschreitung eskalieren

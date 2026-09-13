@@ -294,11 +294,13 @@ Monatlich statt täglich, weil die BMS-Schätzung mit Temperatur und Ladezustand
 
 ## 🌙 Nachtabsenkung der Untergrenze
 
-Fällt der Speicher nachts auf die Untergrenze und das Haus zieht ab da Netzstrom, liegt darunter noch Energie, die genau diesen Bezug vermieden hätte. `soc_night_floor` (Voreinstellung 10 %) erlaubt, diese Reserve zu nutzen.
+Fällt der Speicher nachts auf die Untergrenze und das Haus zieht ab da Netzstrom, liegt darunter noch Energie, die genau diesen Bezug vermieden hätte. `soc_night_floor` (Voreinstellung 5 %) erlaubt, diese Reserve zu nutzen.
 
 Gesenkt wird **vorausschauend und nur so weit wie nötig**: Das Add-on rechnet den gelernten Verbrauch von jetzt bis zum Sonnenaufgang und senkt die Grenze genau so tief, dass er gedeckt ist. Reicht die normale Untergrenze für die Nacht, bleibt sie stehen — die tiefere Entladung gibt es nur in den Nächten, in denen sie tatsächlich Netzbezug spart.
 
-Kein Netzsensor nötig. `soc_hard_safety_min` bleibt die äußere Grenze: Steht sie auf 15, wirkt ein Nachtboden von 10 nicht tiefer als 15 — wer wirklich bis 10 % gehen will, muss auch die Notbremse senken. Die Begründung im Dashboard nennt diesen Fall.
+Kein Netzsensor nötig. `soc_hard_safety_min` bleibt die äußere Grenze — der höhere der beiden Werte wird nie unterschritten, also beide gemeinsam einstellen. Die Begründung im Dashboard nennt diesen Fall.
+
+**Die Untergrenze liegt nie über dem Ladestand.** Läge sie darüber, würde der Wechselrichter bis zur Grenze nachladen — aus dem Netz, wenn die Sonne nicht reicht. Endet morgens die Nachtabsenkung, während der Speicher bei 15 % steht, bleibt die Grenze deshalb bei 15 % und steigt erst mit, wenn die Sonne nachfüllt.
 
 ## ✋ Grenzen für heute von Hand setzen
 
@@ -306,7 +308,7 @@ In der Karte **🛡️ Batterieschonung** lassen sich Deckel und Untergrenze fü
 
 Gedacht ist das für Tage, an denen du weißt, dass es sich nicht ausgeht — Gäste, Wäsche, eine Wetterlage, die die Prognose nicht sieht. **Damit du die Strategie nicht abschalten musst.** Abschalten wäre die grobe Lösung und kostet außerdem die Aufzeichnung.
 
-Der Eingriff **gilt bis Mitternacht und hebt sich dann von selbst auf**. Das ist Absicht: Ein Eingriff, den man vergessen kann, wäre so schlecht wie das Abschalten — er bliebe wochenlang stehen, und niemand wüsste, warum der Speicher täglich voll ist.
+Der Eingriff **hebt sich von selbst auf**: der Deckel um Mitternacht, die Untergrenze erst, wenn die Sonne das Haus am nächsten Morgen wieder trägt — sie gehört zur Nacht, und die läuft über den Datumswechsel. Das ist Absicht: Ein Eingriff, den man vergessen kann, wäre so schlecht wie das Abschalten — er bliebe wochenlang stehen, und niemand wüsste, warum der Speicher täglich voll ist.
 
 Beide Felder sind einzeln setzbar; ein leeres Feld wird weiter gerechnet. Die harte Notbremse `soc_hard_safety_min` bleibt in jedem Fall wirksam, und zwischen beiden Grenzen bleiben mindestens 5 Punkte Abstand.
 

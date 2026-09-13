@@ -245,7 +245,8 @@
                 </div>
                 <div id="manual-limits-state" style="font-size: 0.85rem; margin-top: 0.7rem;"></div>
                 <div style="font-size: 0.8rem; opacity: 0.65; margin-top: 0.5rem;">
-                    Gilt bis Mitternacht und hebt sich dann von selbst auf — gedacht für Tage,
+                    Der Deckel gilt bis Mitternacht, die Untergrenze bis die Sonne morgen früh das
+                    Haus wieder trägt — beide heben sich dann von selbst auf. Gedacht für Tage,
                     an denen du weißt, dass es sich nicht ausgeht. Leer gelassene Felder werden
                     weiter gerechnet. Geladen wird weiterhin verteilt statt mit voller Leistung:
                     Der Eingriff hebt das Ziel an, nicht die Schonung auf.
@@ -545,13 +546,25 @@ function manualLimitsState(grenzen, fehler) {
         el.textContent = 'Kein Eingriff aktiv – es gilt die Rechnung.';
         return;
     }
+    // Deckel und Untergrenze laufen getrennt ab: der Deckel um Mitternacht,
+    // die Untergrenze erst, wenn die Sonne das Haus wieder traegt.
+    const bis = iso => {
+        if (!iso) return '?';
+        // Lokales Datum, nicht toISOString(): das waere UTC, und kurz nach
+        // Mitternacht stuende dann faelschlich "morgen" vor einer Uhrzeit,
+        // die schon heute ist.
+        const d = new Date();
+        const heute = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+                    + '-' + String(d.getDate()).padStart(2, '0');
+        return (iso.substring(0, 10) > heute ? 'morgen ' : '') + iso.substring(11, 16) + ' Uhr';
+    };
     const teile = [];
     if (grenzen.max_soc !== null && grenzen.max_soc !== undefined)
-        teile.push('Deckel ' + Math.round(grenzen.max_soc) + ' %');
+        teile.push('Deckel ' + Math.round(grenzen.max_soc) + ' % bis ' + bis(grenzen.gueltig_bis));
     if (grenzen.min_soc !== null && grenzen.min_soc !== undefined)
-        teile.push('Untergrenze ' + Math.round(grenzen.min_soc) + ' %');
-    el.textContent = 'Aktiv: ' + teile.join(', ')
-        + ' – gilt bis ' + (grenzen.gueltig_bis || '').substring(11, 16) + ' Uhr.';
+        teile.push('Untergrenze ' + Math.round(grenzen.min_soc) + ' % bis '
+                   + bis(grenzen.gueltig_bis_min || grenzen.gueltig_bis));
+    el.textContent = 'Aktiv: ' + teile.join(', ') + '.';
 }
 
 function setManualLimits() {

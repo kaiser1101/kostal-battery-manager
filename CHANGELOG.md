@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.20.0] - 2026-09-13
+
+### Fixed
+- **Die Batterie wurde morgens aus dem Netz geladen.** Beobachtet am 13.09.
+  um 08:00: Ladestand 15 %, PV 723 W, Haus 678 W - und die Batterie lud mit
+  500 W, genau der Drosselgrenze, bei 512 W Netzbezug. Mit deaktiviertem
+  Add-on lud sie nur den Ueberschuss.
+
+  Ursache: Die Untergrenze (Register 1042) lag ueber dem Ladestand. Dann
+  laedt der Wechselrichter bis zur Grenze nach - aus dem Netz, wenn die
+  Sonne nicht reicht. Beim Deaktivieren wird die Grenze auf den
+  Ausgangswert freigegeben, liegt damit unter dem Ladestand, und das
+  Nachladen hoert auf. Im Code stand die gegenteilige Annahme woertlich:
+  "Ein hoher min_soc ist dagegen harmlos."
+
+  Die Lage entstand nicht an einer Stelle, sondern ueberall, wo die Grenze
+  steigt, waehrend der Speicher tief steht: morgens beim Ende der
+  Nachtabsenkung (der Fall vom 13.09.), beim Ablauf eines manuellen Werts,
+  bei Kalibrierung und Notbremse, nach einem Neustart mit dem Korridorwert.
+
+  **Deshalb eine Sperre fuer alle Zweige:** `plan()` ist jetzt eine Huelle,
+  die jedes Ergebnis durch `_untergrenze_begrenzen()` schickt. Die
+  Untergrenze liegt nie ueber dem Ladestand - abgerundet auf ihn, nicht
+  darunter. Ein Abstand nach unten waere eine Ratsche gewesen, die die
+  Batterie Zyklus fuer Zyklus leerfaehrt. Fuellt die Sonne nach, zieht die
+  Grenze mit bis zum gerechneten Wert. Das hat Vorrang vor der Notbremse:
+  Ein Ladestand unter ihr wird gehalten, nicht aus dem Netz angehoben.
+
+  Geprueft: der Fall vom 13.09., Nachfuellen durch PV, 50 Zyklen ohne
+  Absinken, Normalfall unveraendert, Notbremse bei 3 %, Kalibrierung bei
+  20 %, und das Entscheidungsprotokoll haelt den geschriebenen Wert fest -
+  mit Gegenprobe, dass die Pruefung ohne Sperre anschlaegt.
+
+### Changed
+- **Tiefste Untergrenze 5 % statt 15 %.** `soc_hard_safety_min` und
+  `soc_night_floor` stehen jetzt beide auf 5. Rangfolge des Add-ons: nie
+  aus dem Netz laden, dann Kosten sparen, dann die Batterie schonen.
+
+  **Bestehende Installationen uebernehmen das nicht von selbst** - Home
+  Assistant behaelt die gespeicherten Optionen. Beide Werte in der
+  Add-on-Konfiguration von Hand auf 5 setzen.
+
+- **Eine von Hand gesetzte Untergrenze gilt bis die Sonne das Haus wieder
+  traegt**, nicht bis Mitternacht. Sie gehoert zur Nacht, und die laeuft
+  ueber den Datumswechsel: Um 00:15 waere die Grenze sonst mitten in der
+  Nacht zurueckgesprungen. Eine feste Morgenstunde taugt ebenso wenig - im
+  Dezember beginnt die PV hier erst gegen halb neun, im Juni vor sechs.
+  Massgeblich ist die erste PV-Stunde der Prognose, dieselbe Definition wie
+  bei der Nachtabsenkung. Der Deckel laeuft weiter um Mitternacht ab.
+
 ## [0.19.1] - 2026-09-12
 
 ### Fixed

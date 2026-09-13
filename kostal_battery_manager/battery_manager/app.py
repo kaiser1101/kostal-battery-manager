@@ -135,7 +135,7 @@ def load_config():
         'calibration_min_pv_kwh': 15.0,
         'soc_corridor_min': 30,             # weiche Untergrenze, schonender Korridor
         'soc_corridor_max': 85,             # weiche Obergrenze, kein Vollladen
-        'soc_hard_safety_min': 15,          # harte Notbremse, unabhängig vom Abend-Check
+        'soc_hard_safety_min': 5,           # harte Notbremse, unabhängig vom Abend-Check
         'pv_forecast_safety_margin': 0.8,   # Sicherheitsmarge auf PV-Prognose
         'pv_dropoff_threshold': 0.05,       # Trigger: PV < 5% des Tagesmaximums
         'escalation_days': 2,               # nach X Tagen Korridor-Unterschreitung eskalieren
@@ -1521,8 +1521,13 @@ def api_manual_limits():
                         'reason': f'Der Deckel ({max_soc:.0f} %) muss ueber der '
                                   f'Untergrenze ({min_soc:.0f} %) liegen.'}), 200
 
+    # Die Untergrenze gilt, bis die Sonne das Haus wieder traegt - nicht bis
+    # zu einer festen Uhrzeit. Siehe naechster_sonnenaufgang().
+    nacht_ende = (pv_shaping_planner.naechster_sonnenaufgang(ha_client, config)
+                  if ha_client else None)
     grenzen = pv_shaping_planner.setze_manuelle_grenzen(max_soc=max_soc,
-                                                        min_soc=min_soc)
+                                                        min_soc=min_soc,
+                                                        nacht_ende=nacht_ende)
     return jsonify({'success': True, 'grenzen': grenzen})
 
 

@@ -22,6 +22,7 @@ Ziel ist Batterielebensdauer:
 
 import json
 import logging
+import math
 import os
 from datetime import datetime, timedelta
 from typing import Dict, Optional
@@ -58,7 +59,7 @@ class PVShapingPlanner:
     def __init__(self, config: Dict, state_path: str = '/data/pv_shaping_state.json'):
         self.soc_corridor_min = config.get('soc_corridor_min', 30)
         self.soc_corridor_max = config.get('soc_corridor_max', 85)
-        self.soc_hard_safety_min = config.get('soc_hard_safety_min', 15)
+        self.soc_hard_safety_min = config.get('soc_hard_safety_min', 5)
         self.pv_forecast_safety_margin = config.get('pv_forecast_safety_margin', 0.8)
         self.pv_dropoff_threshold = config.get('pv_dropoff_threshold', 0.05)
 
@@ -745,6 +746,11 @@ class PVShapingPlanner:
     # bevor sie als gescheitert vermerkt wird statt ewig offen zu bleiben.
     KALIBRIER_MAX_VERSUCHSTAGE = 3
 
+    # Rueckfall, wann eine von Hand gesetzte UNTERGRENZE endet, falls keine
+    # PV-Prognose vorliegt. Regulaer endet sie, wenn die Sonne das Haus
+    # wieder traegt - siehe naechster_sonnenaufgang().
+    MANUELL_NACHT_ENDE_STUNDE = 7
+
     def restbedarf_bis_sonnenaufgang(self, ha_client, config, now: datetime) -> Optional[float]:
         """
         Verbrauch von JETZT bis die Sonne morgen frueh wieder traegt.
@@ -869,8 +875,34 @@ class PVShapingPlanner:
                         f'dort haelt {grenze} bei {neuer_boden:.0f}%')
         return float(neuer_boden), hinweis
 
+    def naechster_sonnenaufgang(self, ha_client, config,
+                                now: Optional[datetime] = None) -> Optional[datetime]:
+        """
+        Naechster Zeitpunkt, ab dem die PV das Haus wieder traegt.
+
+        Dieselbe Definition wie in restbedarf_bis_sonnenaufgang(), damit eine
+        von Hand gesetzte Untergrenze genau so lange gilt wie die Nacht, zu
+        der sie gehoert. Eine feste Uhrzeit taugt nicht: Im Dezember beginnt
+        die PV hier erst gegen halb neun, im Juni vor sechs.
+        """
+        now = now or datetime.now().astimezone()
+        try:
+            heute = self._sunrise_hour(self.get_hourly_pv_forecast(ha_client, config))
+            if heute is not None and now.hour < heute:
+                return now.replace(hour=heute, minute=0, second=0, microsecond=0)
+            morgen_datum = now + timedelta(days=1)
+            morgen = self._sunrise_hour(self.get_hourly_pv_forecast(
+                ha_client, config, for_date=morgen_datum.date()))
+            if morgen is not None:
+                return morgen_datum.replace(hour=morgen, minute=0, second=0,
+                                            microsecond=0)
+        except Exception as e:
+            logger.debug(f"Sonnenaufgang nicht bestimmbar: {e}")
+        return None
+
     def setze_manuelle_grenzen(self, max_soc=None, min_soc=None,
-                               now: Optional[datetime] = None) -> Dict:
+                               now: Optional[datetime] = None,
+                               nacht_ende: Optional[datetime] = None) -> Dict:
         """
         Setzt Deckel und/oder Untergrenze von Hand, gueltig bis Tagesende.
 
@@ -880,17 +912,41 @@ class PVShapingPlanner:
         now = now or datetime.now().astimezone()
         tagesende = now.replace(hour=23, minute=59, second=59, microsecond=0)
 
+        # Deckel und Untergrenze laufen zu VERSCHIEDENEN Zeitpunkten ab,
+        # weil sie zu verschiedenen Zeitraeumen gehoeren.
+        #
+        # Der Deckel regelt das Laden, also den Tag: Mitternacht ist die
+        # richtige Grenze, morgen soll frisch gerechnet werden.
+        #
+        # Die Untergrenze regelt das Entladen, also die NACHT - und die
+        # endet nicht um Mitternacht. Liefe der Eingriff dort ab, spraenge
+        # die Grenze um 00:15 von 15 auf 25 % zurueck, waehrend der Speicher
+        # vielleicht schon bei 18 % steht. Der Wechselrichter hoerte
+        # augenblicklich auf zu entladen, und das Netz uebernaehme den Rest
+        # der Nacht - genau das, was der Eingriff verhindern sollte.
+        # Deshalb gilt sie, bis die Sonne das Haus wieder traegt - und nur
+        # ohne Prognose ersatzweise bis zu einer festen Morgenstunde.
+        if nacht_ende is not None and nacht_ende > now:
+            morgen_ende = nacht_ende
+        else:
+            morgen_ende = now.replace(hour=self.MANUELL_NACHT_ENDE_STUNDE,
+                                      minute=0, second=0, microsecond=0)
+            if morgen_ende <= now:
+                morgen_ende = morgen_ende + timedelta(days=1)
+
         bisher = (self._state.get('manuelle_grenzen') or {})
         eintrag = {
             'max_soc': float(max_soc) if max_soc is not None else bisher.get('max_soc'),
             'min_soc': float(min_soc) if min_soc is not None else bisher.get('min_soc'),
             'gesetzt': now.isoformat(timespec='seconds'),
             'gueltig_bis': tagesende.isoformat(timespec='seconds'),
+            'gueltig_bis_min': morgen_ende.isoformat(timespec='seconds'),
         }
         self._state['manuelle_grenzen'] = eintrag
         self._save_state()
         logger.info(f"Manuelle Grenzen gesetzt: max_soc={eintrag['max_soc']} "
-                    f"min_soc={eintrag['min_soc']}, gueltig bis {tagesende:%H:%M}")
+                    f"(bis {tagesende:%H:%M}) min_soc={eintrag['min_soc']} "
+                    f"(bis {morgen_ende:%d.%m. %H:%M})")
         return eintrag
 
     def loesche_manuelle_grenzen(self) -> None:
@@ -900,23 +956,42 @@ class PVShapingPlanner:
             logger.info("Manuelle Grenzen aufgehoben - die Rechnung gilt wieder")
 
     def manuelle_grenzen(self, now: Optional[datetime] = None) -> Optional[Dict]:
-        """Aktive manuelle Grenzen, oder None. Abgelaufene werden entfernt."""
+        """
+        Aktive manuelle Grenzen, oder None.
+
+        Deckel und Untergrenze laufen getrennt ab (siehe
+        setze_manuelle_grenzen): Nach Mitternacht kann die Untergrenze noch
+        gelten, waehrend der Deckel schon wieder gerechnet wird. Abgelaufene
+        Teile werden aus dem Eintrag entfernt, der leere Eintrag ganz.
+        """
         eintrag = self._state.get('manuelle_grenzen')
         if not eintrag:
             return None
         now = now or datetime.now().astimezone()
-        try:
-            bis = datetime.fromisoformat(eintrag['gueltig_bis'])
-        except Exception:
+
+        def abgelaufen(schluessel, ersatz=None):
+            roh = eintrag.get(schluessel) or ersatz
+            if not roh:
+                return True
+            try:
+                return now > datetime.fromisoformat(roh)
+            except (TypeError, ValueError):
+                return True
+
+        aktiv = dict(eintrag)
+        # Aeltere Zustandsdateien kennen gueltig_bis_min noch nicht - dann
+        # gilt fuer die Untergrenze ersatzweise dieselbe Frist wie frueher.
+        if abgelaufen('gueltig_bis'):
+            aktiv['max_soc'] = None
+        if abgelaufen('gueltig_bis_min', eintrag.get('gueltig_bis')):
+            aktiv['min_soc'] = None
+
+        if aktiv.get('max_soc') is None and aktiv.get('min_soc') is None:
+            if eintrag.get('max_soc') is not None or eintrag.get('min_soc') is not None:
+                logger.info("Manuelle Grenzen abgelaufen - die Rechnung gilt wieder")
             self.loesche_manuelle_grenzen()
             return None
-        if now > bis:
-            logger.info("Manuelle Grenzen abgelaufen - die Rechnung gilt wieder")
-            self.loesche_manuelle_grenzen()
-            return None
-        if eintrag.get('max_soc') is None and eintrag.get('min_soc') is None:
-            return None
-        return eintrag
+        return aktiv
 
     def _grenzen_anwenden(self, max_soc: float, min_soc: float,
                           now: datetime) -> tuple:
@@ -935,17 +1010,19 @@ class PVShapingPlanner:
         if eintrag.get('min_soc') is not None:
             min_soc = max(float(self.soc_hard_safety_min),
                           min(99.0, float(eintrag['min_soc'])))
-            teile.append(f'Untergrenze {min_soc:.0f}%')
+            bis_min = (eintrag.get('gueltig_bis_min')
+                       or eintrag.get('gueltig_bis') or '')
+            teile.append(f'Untergrenze {min_soc:.0f}% bis {bis_min[11:16]} Uhr')
         if eintrag.get('max_soc') is not None:
             max_soc = min(100.0, max(min_soc + self.MANUELL_MIN_ABSTAND,
                                      float(eintrag['max_soc'])))
-            teile.append(f'Deckel {max_soc:.0f}%')
+            teile.append(f'Deckel {max_soc:.0f}% bis '
+                         f"{eintrag.get('gueltig_bis','')[11:16]} Uhr")
         else:
             # Untergrenze allein darf den gerechneten Deckel nicht ueberholen.
             max_soc = max(max_soc, min_soc + self.MANUELL_MIN_ABSTAND)
 
-        bis = eintrag['gueltig_bis'][11:16]
-        return max_soc, min_soc, f"MANUELL: {', '.join(teile)} bis {bis} Uhr"
+        return max_soc, min_soc, f"MANUELL: {', '.join(teile)}"
 
     def _deckel_mit_totband(self, roh_max_soc: float) -> float:
         """
@@ -1430,6 +1507,67 @@ class PVShapingPlanner:
         """
         Berechnet die Grenzwerte fuer den aktuellen Zeitpunkt.
 
+        Duenne Huelle um _plan_berechnen(): Jeder Zweig - Notbremse,
+        Kalibrierung, Normalfall - laeuft am Ende durch dieselbe Sperre, die
+        die Untergrenze nie ueber den Ladestand legt. Eine Stelle statt
+        mehrerer return-Anweisungen, an die man einzeln denken muesste.
+        """
+        plan = self._plan_berechnen(ha_client, config, current_soc,
+                                    battery_capacity, now=now)
+        if plan.get('min_soc') is None or current_soc is None:
+            return plan
+        begrenzt, hinweis = self._untergrenze_begrenzen(plan['min_soc'], current_soc)
+        if hinweis:
+            plan['min_soc'] = round(begrenzt, 1)
+            plan['reason'] = '; '.join(t for t in (plan.get('reason'), hinweis) if t)
+        return plan
+
+    def _untergrenze_begrenzen(self, min_soc: float, current_soc: float) -> tuple:
+        """
+        Die Untergrenze liegt NIE ueber dem aktuellen Ladestand.
+
+        Liegt sie darueber, laedt der Wechselrichter die Batterie bis zur
+        Grenze nach - aus dem Netz, wenn die Sonne nicht reicht. Beobachtet am
+        13.09. um 08:00: Ladestand 15 %, PV 723 W, Haus 678 W, die Batterie
+        lud mit 500 W (genau die Drosselgrenze), Netzbezug 512 W. Mit
+        deaktiviertem Add-on - Untergrenze auf den Ausgangswert freigegeben -
+        lud sie nur den Ueberschuss.
+
+        Entstehen kann die Lage ueberall, wo die Grenze steigt, waehrend der
+        Speicher tief steht: morgens, wenn die Nachtabsenkung endet; wenn ein
+        manueller Wert ablaeuft; bei Kalibrierung und Notbremse; nach einem
+        Neustart mit dem Korridorwert. Deshalb einmal fuer alle statt an jeder
+        dieser Stellen einzeln.
+
+        Abgerundet auf den Ladestand, nicht darunter. Ein Abstand nach unten
+        saehe vorsichtiger aus, waere aber eine Ratsche: Die Batterie entlaedt
+        bis zur neuen Grenze, der naechste Zyklus liest den tieferen Stand und
+        senkt weiter - bis nichts mehr drin ist. Auf dem Ladestand selbst
+        entlaedt sie nicht, also bleibt die Grenze stehen. Fuellt die Sonne
+        nach, zieht die Grenze mit bis zum gerechneten Wert.
+
+        Das hat auch Vorrang vor der harten Notbremse: Liegt der Ladestand
+        schon darunter, wird er gehalten und nicht aus dem Netz angehoben.
+
+        Returns:
+            (min_soc, hinweis) - hinweis ist '' wenn nichts begrenzt wurde.
+        """
+        try:
+            obergrenze = float(math.floor(float(current_soc)))
+        except (TypeError, ValueError):
+            return min_soc, ''
+        if min_soc <= obergrenze:
+            return min_soc, ''
+        return obergrenze, (f'Untergrenze auf {obergrenze:.0f}% gehalten statt '
+                            f'{min_soc:.0f}%: ueber dem Ladestand wuerde der '
+                            f'Wechselrichter aus dem Netz nachladen')
+
+    def _plan_berechnen(self, ha_client, config, current_soc: float,
+                        battery_capacity: float,
+                        now: Optional[datetime] = None) -> Dict:
+        """
+        Die eigentliche Rechnung - von aussen nur ueber plan() aufrufen.
+
         Args:
             now: Zeitpunkt der Planung. Default = jetzt. Injizierbar,
                  damit Szenarien testbar sind.
@@ -1480,12 +1618,18 @@ class PVShapingPlanner:
             # Entladen wird ueber die SOC-Untergrenze gestoppt, NICHT ueber
             # ein 0-W-Entladelimit. Beides wirkt gleich, aber der Grenzwert
             # persistiert: bliebe 0 W nach einem Absturz stehen, koennte die
-            # Batterie nie wieder entladen. Ein hoher min_soc ist dagegen
-            # harmlos und wird vom naechsten Zyklus normal korrigiert.
+            # Batterie nie wieder entladen.
+            #
+            # Die Grenze liegt auf dem LADESTAND, nicht auf der Notbremse.
+            # Frueher stand hier max(Ladestand, Notbremse) mit dem Vermerk,
+            # ein hoher min_soc sei harmlos. Das war falsch: Liegt die Grenze
+            # ueber dem Ladestand, laedt der Wechselrichter bis dorthin nach -
+            # aus dem Netz, wenn die Sonne nicht reicht. Siehe
+            # _untergrenze_begrenzen().
             plan.update({
                 'mode': 'safety',
                 'max_soc': 100.0,
-                'min_soc': round(max(current_soc, float(self.soc_hard_safety_min)), 1),
+                'min_soc': float(math.floor(current_soc)),
                 'max_charge_power': configured_max_power,
                 'max_discharge_power': discharge_limit,
                 'reason': (f'SICHERHEIT: SOC {current_soc:.1f}% unter Hartgrenze '
@@ -1750,6 +1894,13 @@ class PVShapingPlanner:
                 throttle_regel = 'verteilt'
                 throttle_reason = (f'{deficit_kwh:.1f} kWh nach Prognose verteilt '
                                    f'({anteil*100:.0f}% der Restsonne faellt in diese Stunde)')
+
+        # Sperre schon hier anwenden, damit das Protokoll den Wert festhaelt,
+        # der wirklich geschrieben wird. plan() wendet sie noch einmal an -
+        # das ist dann wirkungslos, deckt aber die fruehen Zweige ab.
+        min_soc, sperr_hinweis = self._untergrenze_begrenzen(min_soc, current_soc)
+        if sperr_hinweis:
+            cap_reason += f'; {sperr_hinweis}'
 
         # Entscheidung mitschreiben, bevor sie zurueckgegeben wird. Ein
         # Fehler hier darf die Steuerung nicht anhalten - das Protokoll ist
